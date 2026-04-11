@@ -256,8 +256,8 @@ export default async function DashboardPage() {
                       <span className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center text-xs">✓</span>
                       <span className="text-sm font-semibold">Formazione inviata</span>
                     </div>
-                    <Link href="/squadra" className="text-xs text-green-600 underline font-medium">
-                      Modifica
+                    <Link href="/squadra/formazione" className="text-xs text-green-600 underline font-medium">
+                      Vedi / Modifica
                     </Link>
                   </div>
                 ) : (
