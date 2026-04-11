@@ -57,26 +57,42 @@ export default async function SquadraPage() {
     .maybeSingle()
 
   // Formazione già inviata (se esiste)
-  let existingLineup = null
+  type ExistingLineup = {
+    id: string
+    formation: string | null
+    created_at: string | null
+    updated_at: string | null
+  }
+  type LineupPlayerFull = {
+    player_id: string
+    is_starter: boolean
+    bench_order: number
+    players: { role: string }
+  }
+
+  let existingLineup: ExistingLineup | null = null
   let existingLineupPlayers: string[] = []
-  let existingBenchPlayers: string[] = []
+  let existingBenchByRole: Record<string, string[]> = { P: [], D: [], C: [], A: [] }
+  let existingFormation = '4-3-3'
 
   if (openMatchday) {
     const { data: lineup } = await supabase
       .from('lineups')
-      .select('*, lineup_players(player_id, is_starter)')
+      .select('id, formation, created_at, updated_at, lineup_players(player_id, is_starter, bench_order, players(role))')
       .eq('team_id', myTeam.id)
       .eq('matchday_id', openMatchday.id)
       .maybeSingle()
 
     if (lineup) {
-      existingLineup = lineup
-      existingLineupPlayers = (lineup.lineup_players as { player_id: string; is_starter: boolean }[])
-        .filter((lp) => lp.is_starter)
-        .map((lp) => lp.player_id)
-      existingBenchPlayers = (lineup.lineup_players as { player_id: string; is_starter: boolean }[])
-        .filter((lp) => !lp.is_starter)
-        .map((lp) => lp.player_id)
+      existingLineup = lineup as unknown as ExistingLineup
+      existingFormation = lineup.formation || '4-3-3'
+      const lps = (lineup.lineup_players as unknown as LineupPlayerFull[]) || []
+      existingLineupPlayers = lps.filter((lp) => lp.is_starter).map((lp) => lp.player_id)
+      const benchSorted = lps.filter((lp) => !lp.is_starter).sort((a, b) => a.bench_order - b.bench_order)
+      for (const lp of benchSorted) {
+        const role = lp.players?.role
+        if (role && existingBenchByRole[role] !== undefined) existingBenchByRole[role].push(lp.player_id)
+      }
     }
   }
 
@@ -186,8 +202,11 @@ export default async function SquadraPage() {
             matchdayNumber={openMatchday.number}
             roster={(roster as RosterEntry[]) || []}
             existingLineupId={existingLineup?.id ?? null}
+            existingFormation={existingFormation}
             existingStarters={existingLineupPlayers}
-            existingBench={existingBenchPlayers}
+            existingBenchByRole={existingBenchByRole}
+            lineupCreatedAt={existingLineup?.created_at ?? null}
+            lineupUpdatedAt={existingLineup?.updated_at ?? null}
           />
         )}
 
