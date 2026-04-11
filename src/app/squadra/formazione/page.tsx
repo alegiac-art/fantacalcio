@@ -49,10 +49,10 @@ export default async function FormazionePage() {
     )
   }
 
-  // Step 1: verifica esistenza con query semplice (robusta anche senza colonne opzionali)
+  // Step 1: verifica esistenza con query minima (solo colonne garantite)
   const { data: lineupBasic } = await supabase
     .from('lineups')
-    .select('id, formation, created_at')
+    .select('id, created_at')
     .eq('team_id', myTeam.id)
     .eq('matchday_id', openMatchday.id)
     .maybeSingle()
@@ -104,9 +104,21 @@ export default async function FormazionePage() {
       .map((lp, i) => ({ ...lp, bench_order: i }))
   }
 
+  // Recupera formation separatamente (colonna opzionale)
+  let lineupFormation = '4-3-3'
+  const { data: lineupExtra } = await supabase
+    .from('lineups')
+    .select('formation')
+    .eq('id', lineupBasic.id)
+    .single()
+  if (lineupExtra) {
+    const le = lineupExtra as unknown as { formation: string | null }
+    lineupFormation = le.formation || '4-3-3'
+  }
+
   const lineup = {
     id: lineupBasic.id,
-    formation: lineupBasic.formation,
+    formation: lineupFormation,
     created_at: lineupBasic.created_at,
     updated_at: lineupUpdatedAt,
   }
@@ -132,7 +144,7 @@ export default async function FormazionePage() {
       teamName={myTeam.name}
       matchdayNumber={openMatchday.number}
       deadline={openMatchday.deadline ?? null}
-      formation={lineup.formation || '4-3-3'}
+      formation={lineup.formation}
       lineupPlayers={lineupPlayers}
       allRosterPlayers={allRosterPlayers}
       changes={(changesRaw || []) as ChangeEntry[]}

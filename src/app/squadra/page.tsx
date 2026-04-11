@@ -77,22 +77,54 @@ export default async function SquadraPage() {
   let existingFormation = '4-3-3'
 
   if (openMatchday) {
-    const { data: lineup } = await supabase
+    // Step 1: esistenza con query semplice (robusta anche senza colonne opzionali)
+    const { data: lineupBasic } = await supabase
       .from('lineups')
-      .select('id, formation, created_at, updated_at, lineup_players(player_id, is_starter, bench_order, players(role))')
+      .select('id, created_at')
       .eq('team_id', myTeam.id)
       .eq('matchday_id', openMatchday.id)
       .maybeSingle()
 
-    if (lineup) {
-      existingLineup = lineup as unknown as ExistingLineup
-      existingFormation = lineup.formation || '4-3-3'
-      const lps = (lineup.lineup_players as unknown as LineupPlayerFull[]) || []
-      existingLineupPlayers = lps.filter((lp) => lp.is_starter).map((lp) => lp.player_id)
-      const benchSorted = lps.filter((lp) => !lp.is_starter).sort((a, b) => a.bench_order - b.bench_order)
-      for (const lp of benchSorted) {
-        const role = lp.players?.role
-        if (role && existingBenchByRole[role] !== undefined) existingBenchByRole[role].push(lp.player_id)
+    if (lineupBasic) {
+      existingLineup = { id: lineupBasic.id, formation: null, created_at: lineupBasic.created_at, updated_at: null }
+
+      // Step 2: colonne opzionali (formation, updated_at) — ignora se non esistono
+      const { data: lineupExtra } = await supabase
+        .from('lineups')
+        .select('formation, updated_at')
+        .eq('id', lineupBasic.id)
+        .single()
+      if (lineupExtra) {
+        const le = lineupExtra as unknown as { formation: string | null; updated_at: string | null }
+        existingFormation = le.formation || '4-3-3'
+        existingLineup = { ...existingLineup, formation: le.formation, updated_at: le.updated_at }
+      }
+
+      // Step 3: giocatori con bench_order, fallback senza
+      const { data: lpWithOrder, error: lpErr } = await supabase
+        .from('lineup_players')
+        .select('player_id, is_starter, bench_order, players(role)')
+        .eq('lineup_id', lineupBasic.id)
+
+      const lps: LineupPlayerFull[] = lpErr
+        ? []
+        : (lpWithOrder as unknown as LineupPlayerFull[]) || []
+
+      if (lpErr) {
+        // Fallback senza bench_order
+        const { data: lpBasic } = await supabase
+          .from('lineup_players')
+          .select('player_id, is_starter, players(role)')
+          .eq('lineup_id', lineupBasic.id)
+        const lpb = (lpBasic as unknown as LineupPlayerFull[]) || []
+        existingLineupPlayers = lpb.filter((lp) => lp.is_starter).map((lp) => lp.player_id)
+      } else {
+        existingLineupPlayers = lps.filter((lp) => lp.is_starter).map((lp) => lp.player_id)
+        const benchSorted = lps.filter((lp) => !lp.is_starter).sort((a, b) => a.bench_order - b.bench_order)
+        for (const lp of benchSorted) {
+          const role = lp.players?.role
+          if (role && existingBenchByRole[role] !== undefined) existingBenchByRole[role].push(lp.player_id)
+        }
       }
     }
   }
