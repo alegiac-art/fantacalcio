@@ -49,14 +49,15 @@ export default async function FormazionePage() {
     )
   }
 
-  const { data: lineup } = await supabase
+  // Step 1: verifica esistenza con query semplice (robusta anche senza colonne opzionali)
+  const { data: lineupBasic } = await supabase
     .from('lineups')
-    .select('id, formation, created_at, updated_at, lineup_players(player_id, is_starter, bench_order, players(id, name, role, serie_a_team))')
+    .select('id, formation, created_at')
     .eq('team_id', myTeam.id)
     .eq('matchday_id', openMatchday.id)
     .maybeSingle()
 
-  if (!lineup) {
+  if (!lineupBasic) {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="bg-green-700 text-white px-4 pt-12 pb-6 flex items-center gap-3">
@@ -76,6 +77,38 @@ export default async function FormazionePage() {
         </div>
       </div>
     )
+  }
+
+  // Step 2: carica dettagli completi con bench_order (se la colonna esiste)
+  // Se fallisce (colonne DB non ancora migrate), usa query di fallback
+  let lineupPlayers: LineupPlayerRaw[] = []
+  let lineupUpdatedAt: string | null = null
+
+  const { data: lineupFull, error: fullErr } = await supabase
+    .from('lineups')
+    .select('updated_at, lineup_players(player_id, is_starter, bench_order, players(id, name, role, serie_a_team))')
+    .eq('id', lineupBasic.id)
+    .single()
+
+  if (!fullErr && lineupFull) {
+    lineupPlayers = (lineupFull.lineup_players as unknown as LineupPlayerRaw[]) || []
+    lineupUpdatedAt = (lineupFull as unknown as { updated_at: string | null }).updated_at ?? null
+  } else {
+    // Fallback senza bench_order / updated_at
+    const { data: lineupFallback } = await supabase
+      .from('lineups')
+      .select('lineup_players(player_id, is_starter, players(id, name, role, serie_a_team))')
+      .eq('id', lineupBasic.id)
+      .single()
+    lineupPlayers = ((lineupFallback?.lineup_players as unknown as LineupPlayerRaw[]) || [])
+      .map((lp, i) => ({ ...lp, bench_order: i }))
+  }
+
+  const lineup = {
+    id: lineupBasic.id,
+    formation: lineupBasic.formation,
+    created_at: lineupBasic.created_at,
+    updated_at: lineupUpdatedAt,
   }
 
   // Change log
@@ -100,7 +133,7 @@ export default async function FormazionePage() {
       matchdayNumber={openMatchday.number}
       deadline={openMatchday.deadline ?? null}
       formation={lineup.formation || '4-3-3'}
-      lineupPlayers={lineup.lineup_players as unknown as LineupPlayerRaw[]}
+      lineupPlayers={lineupPlayers}
       allRosterPlayers={allRosterPlayers}
       changes={(changesRaw || []) as ChangeEntry[]}
       lineupCreatedAt={lineup.created_at ?? null}
