@@ -77,16 +77,16 @@ export default async function SquadraPage() {
   let existingFormation = '4-3-3'
 
   if (openMatchday) {
-    // Step 1: esistenza con query semplice (robusta anche senza colonne opzionali)
+    // Step 1: esistenza con solo 'id' — stesso approccio della home che funziona
     const { data: lineupBasic } = await supabase
       .from('lineups')
-      .select('id, created_at')
+      .select('id')
       .eq('team_id', myTeam.id)
       .eq('matchday_id', openMatchday.id)
       .maybeSingle()
 
     if (lineupBasic) {
-      existingLineup = { id: lineupBasic.id, formation: null, created_at: lineupBasic.created_at, updated_at: null }
+      existingLineup = { id: lineupBasic.id, formation: null, created_at: null, updated_at: null }
 
       // Step 2: colonne opzionali (formation, updated_at) — ignora se non esistono
       const { data: lineupExtra } = await supabase

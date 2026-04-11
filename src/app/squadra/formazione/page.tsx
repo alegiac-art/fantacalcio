@@ -49,10 +49,10 @@ export default async function FormazionePage() {
     )
   }
 
-  // Step 1: verifica esistenza con query minima (solo colonne garantite)
+  // Step 1: verifica esistenza — solo 'id' come la home page (garantito sempre presente)
   const { data: lineupBasic } = await supabase
     .from('lineups')
-    .select('id, created_at')
+    .select('id')
     .eq('team_id', myTeam.id)
     .eq('matchday_id', openMatchday.id)
     .maybeSingle()
@@ -104,22 +104,26 @@ export default async function FormazionePage() {
       .map((lp, i) => ({ ...lp, bench_order: i }))
   }
 
-  // Recupera formation separatamente (colonna opzionale)
+  // Recupera colonne opzionali (formation, created_at, updated_at) in query separata
   let lineupFormation = '4-3-3'
-  const { data: lineupExtra } = await supabase
+  let lineupCreatedAt: string | null = null
+
+  const { data: lineupMeta } = await supabase
     .from('lineups')
-    .select('formation')
+    .select('formation, created_at, updated_at')
     .eq('id', lineupBasic.id)
     .single()
-  if (lineupExtra) {
-    const le = lineupExtra as unknown as { formation: string | null }
-    lineupFormation = le.formation || '4-3-3'
+  if (lineupMeta) {
+    const lm = lineupMeta as unknown as { formation: string | null; created_at: string | null; updated_at: string | null }
+    lineupFormation = lm.formation || '4-3-3'
+    lineupCreatedAt = lm.created_at ?? null
+    lineupUpdatedAt = lm.updated_at ?? null
   }
 
   const lineup = {
     id: lineupBasic.id,
     formation: lineupFormation,
-    created_at: lineupBasic.created_at,
+    created_at: lineupCreatedAt,
     updated_at: lineupUpdatedAt,
   }
 
