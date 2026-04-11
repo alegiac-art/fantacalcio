@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 interface Player { id: string; name: string; role: string; serie_a_team: string }
 interface RosterEntry { players: Player; purchase_price: number }
@@ -77,6 +78,7 @@ export default function LineupForm({
   })
   const [message, setMessage] = useState('')
   const [isError, setIsError] = useState(false)
+  const [savedLineupId, setSavedLineupId] = useState<string | null>(existingLineupId)
 
   const fmt = FORMATIONS[formation] ?? { D: 4, C: 3, A: 3 }
 
@@ -217,6 +219,16 @@ export default function LineupForm({
         }
       }
 
+      // Log dell'invio nel registro modifiche (ignora errori se tabella non esiste)
+      const changeDesc = existingLineupId
+        ? `Formazione aggiornata completamente (${formation})`
+        : `Formazione inviata (${formation})`
+      await supabase
+        .from('lineup_changes')
+        .insert({ lineup_id: lineup.id, change_type: 'submit', description: changeDesc })
+        .then() // fire-and-forget, ignora eventuali errori
+
+      setSavedLineupId(lineup.id)
       setIsError(false)
       setMessage(existingLineupId ? 'Formazione aggiornata!' : 'Formazione inviata!')
       router.refresh()
@@ -407,13 +419,21 @@ export default function LineupForm({
       {/* Footer salvataggio */}
       <div className="px-4 py-4 border-t border-gray-100">
         {message && (
-          <p className={`text-sm rounded-xl p-3 mb-3 ${
+          <div className={`rounded-xl p-3 mb-3 ${
             isError
               ? 'bg-red-50 text-red-700 border border-red-200'
               : 'bg-green-50 text-green-700 border border-green-200'
           }`}>
-            {message}
-          </p>
+            <p className="text-sm">{message}</p>
+            {!isError && savedLineupId && (
+              <Link
+                href="/squadra/formazione"
+                className="mt-2 block text-center text-xs font-bold underline underline-offset-2"
+              >
+                Vedi formazione, modifiche e cronologia →
+              </Link>
+            )}
+          </div>
         )}
         <button
           onClick={handleSubmit}

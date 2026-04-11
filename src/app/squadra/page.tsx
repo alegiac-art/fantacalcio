@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import LineupForm from './LineupForm'
 
 const ROLE_LABELS: Record<string, string> = {
@@ -192,6 +193,34 @@ export default async function SquadraPage() {
               Scadenza superata — non puoi più modificare la formazione.
             </p>
           </div>
+        )}
+
+        {/* Link a formazione esistente */}
+        {openMatchday && existingLineup && (
+          <Link
+            href="/squadra/formazione"
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3 flex items-center justify-between"
+          >
+            <div>
+              <p className="font-semibold text-gray-800 text-sm">
+                Formazione G{openMatchday.number} inviata
+              </p>
+              {existingLineup.updated_at ? (
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Modificata: {new Date(existingLineup.updated_at).toLocaleString('it-IT', {
+                    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                  })}
+                </p>
+              ) : existingLineup.created_at ? (
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Inviata: {new Date(existingLineup.created_at).toLocaleString('it-IT', {
+                    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                  })}
+                </p>
+              ) : null}
+            </div>
+            <span className="text-green-600 font-bold text-sm">Vedi ›</span>
+          </Link>
         )}
 
         {/* Formazione interattiva */}
