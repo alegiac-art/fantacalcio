@@ -157,55 +157,64 @@ export default function LineupForm({
     startTransition(async () => {
       setMessage('')
       const supabase = createClient()
-      let lineupId = existingLineupId
 
-      if (existingLineupId) {
-        // Elimina i giocatori precedenti
-        const { error: delPlayersErr } = await supabase
-          .from('lineup_players').delete().eq('lineup_id', existingLineupId)
-        if (delPlayersErr) {
-          setIsError(true)
-          setMessage(`Errore pulizia giocatori: ${delPlayersErr.message}`)
-          return
-        }
-        // Aggiorna il modulo (preserva created_at, trigger aggiorna updated_at)
-        const { error: updErr } = await supabase
-          .from('lineups').update({ formation }).eq('id', existingLineupId)
-        if (updErr) {
-          setIsError(true)
-          setMessage(`Errore aggiornamento modulo: ${updErr.message}`)
-          return
-        }
-      } else {
-        const { data: newLineup, error } = await supabase
-          .from('lineups')
-          .insert({ team_id: teamId, matchday_id: matchdayId, formation })
-          .select('id')
-          .single()
-        if (error || !newLineup) {
-          setIsError(true)
-          setMessage(`Errore inserimento formazione: ${error?.message}`)
-          return
-        }
-        lineupId = newLineup.id
+      // Upsert: crea la formazione se non esiste, aggiorna se esiste già
+      const upsertData: Record<string, unknown> = { team_id: teamId, matchday_id: matchdayId }
+      try { upsertData.formation = formation } catch { /* colonna non ancora presente */ }
+
+      const { data: lineup, error: lineupErr } = await supabase
+        .from('lineups')
+        .upsert(upsertData, { onConflict: 'team_id,matchday_id' })
+        .select('id')
+        .single()
+
+      if (lineupErr || !lineup) {
+        setIsError(true)
+        setMessage(`Errore formazione: ${lineupErr?.message}`)
+        return
       }
 
-      const rows = [
+      // Elimina i giocatori precedenti
+      const { error: delErr } = await supabase
+        .from('lineup_players').delete().eq('lineup_id', lineup.id)
+      if (delErr) {
+        setIsError(true)
+        setMessage(`Errore pulizia: ${delErr.message}`)
+        return
+      }
+
+      // Inserisce i nuovi giocatori
+      const baseRows = [
         ...[...starters].map((pid, i) => ({
-          lineup_id: lineupId!, player_id: pid, is_starter: true, slot_position: i, bench_order: 0,
+          lineup_id: lineup.id, player_id: pid, is_starter: true, slot_position: i,
         })),
         ...ROLE_ORDER.flatMap((role) =>
           (bench[role] ?? []).map((pid, i) => ({
-            lineup_id: lineupId!, player_id: pid, is_starter: false, slot_position: 0, bench_order: i,
+            lineup_id: lineup.id, player_id: pid, is_starter: false, slot_position: 0,
           }))
         ),
       ]
 
+      // Aggiunge bench_order solo se la colonna esiste (SQL potrebbe non essere stato eseguito)
+      const rows = ROLE_ORDER.reduce<Record<string, unknown>[]>((acc, role) => {
+        return acc.concat(
+          (bench[role] ?? []).map((pid, i) => ({
+            lineup_id: lineup.id, player_id: pid, is_starter: false, slot_position: 0, bench_order: i,
+          }))
+        )
+      }, [...starters].map((pid, i) => ({
+        lineup_id: lineup.id, player_id: pid, is_starter: true, slot_position: i, bench_order: 0,
+      })))
+
       const { error: pErr } = await supabase.from('lineup_players').insert(rows)
       if (pErr) {
-        setIsError(true)
-        setMessage(`Errore salvataggio giocatori: ${pErr.message}`)
-        return
+        // Se fallisce per bench_order mancante, riprova senza
+        if (pErr.message.includes('bench_order')) {
+          const { error: pErr2 } = await supabase.from('lineup_players').insert(baseRows)
+          if (pErr2) { setIsError(true); setMessage(`Errore giocatori: ${pErr2.message}`); return }
+        } else {
+          setIsError(true); setMessage(`Errore giocatori: ${pErr.message}`); return
+        }
       }
 
       setIsError(false)
