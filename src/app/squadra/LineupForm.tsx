@@ -160,16 +160,33 @@ export default function LineupForm({
       let lineupId = existingLineupId
 
       if (existingLineupId) {
-        // Aggiorna (preserva created_at, trigger aggiorna updated_at)
-        await supabase.from('lineups').update({ formation }).eq('id', existingLineupId)
-        await supabase.from('lineup_players').delete().eq('lineup_id', existingLineupId)
+        // Elimina i giocatori precedenti
+        const { error: delPlayersErr } = await supabase
+          .from('lineup_players').delete().eq('lineup_id', existingLineupId)
+        if (delPlayersErr) {
+          setIsError(true)
+          setMessage(`Errore pulizia giocatori: ${delPlayersErr.message}`)
+          return
+        }
+        // Aggiorna il modulo (preserva created_at, trigger aggiorna updated_at)
+        const { error: updErr } = await supabase
+          .from('lineups').update({ formation }).eq('id', existingLineupId)
+        if (updErr) {
+          setIsError(true)
+          setMessage(`Errore aggiornamento modulo: ${updErr.message}`)
+          return
+        }
       } else {
         const { data: newLineup, error } = await supabase
           .from('lineups')
           .insert({ team_id: teamId, matchday_id: matchdayId, formation })
           .select('id')
           .single()
-        if (error || !newLineup) { setIsError(true); setMessage('Errore nel salvataggio.'); return }
+        if (error || !newLineup) {
+          setIsError(true)
+          setMessage(`Errore inserimento formazione: ${error?.message}`)
+          return
+        }
         lineupId = newLineup.id
       }
 
@@ -185,7 +202,11 @@ export default function LineupForm({
       ]
 
       const { error: pErr } = await supabase.from('lineup_players').insert(rows)
-      if (pErr) { setIsError(true); setMessage('Errore nel salvataggio dei giocatori.'); return }
+      if (pErr) {
+        setIsError(true)
+        setMessage(`Errore salvataggio giocatori: ${pErr.message}`)
+        return
+      }
 
       setIsError(false)
       setMessage(existingLineupId ? 'Formazione aggiornata!' : 'Formazione inviata!')
