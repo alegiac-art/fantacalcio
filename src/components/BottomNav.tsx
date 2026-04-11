@@ -15,6 +15,7 @@ export default function BottomNav({ isAdmin }: BottomNavProps) {
     { href: '/squadra', label: 'Squadra', icon: ShirtIcon },
     { href: '/classifica', label: 'Classifica', icon: TrophyIcon },
     { href: '/calendario', label: 'Calendario', icon: CalendarIcon },
+    { href: '/profilo', label: 'Profilo', icon: UserIcon },
     ...(isAdmin ? [{ href: '/admin', label: 'Admin', icon: SettingsIcon }] : []),
   ]
 
@@ -72,6 +73,14 @@ function CalendarIcon({ active }: { active: boolean }) {
   return (
     <svg className={`w-6 h-6 ${active ? 'fill-green-600' : 'fill-gray-400'}`} viewBox="0 0 24 24">
       <path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z" />
+    </svg>
+  )
+}
+
+function UserIcon({ active }: { active: boolean }) {
+  return (
+    <svg className={`w-6 h-6 ${active ? 'fill-green-600' : 'fill-gray-400'}`} viewBox="0 0 24 24">
+      <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z" />
     </svg>
   )
 }
