@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,11 +60,14 @@ export async function POST(request: NextRequest) {
     const giornataStr = String(giornata).padStart(2, '0')
     const filename = `voti_${stagioneSafe}_g${giornataStr}.${ext}`
 
-    // 4. Crea il bucket se non esiste (ignora errore se già presente)
-    await supabase.storage.createBucket(BUCKET, { public: false }).catch(() => {})
+    // 4. Service client per operazioni privilegiate su Storage
+    const serviceClient = createServiceClient()
 
-    // 5. Upload in Supabase Storage
-    const { error: uploadErr } = await supabase.storage
+    // Crea il bucket se non esiste (richiede service role key)
+    await serviceClient.storage.createBucket(BUCKET, { public: false }).catch(() => {})
+
+    // 5. Upload in Supabase Storage (via service client)
+    const { error: uploadErr } = await serviceClient.storage
       .from(BUCKET)
       .upload(filename, buffer, {
         contentType: ct || 'application/vnd.ms-excel',
