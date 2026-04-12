@@ -47,6 +47,9 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [importingId, setImportingId] = useState<string | null>(null)
+  const [importMsg, setImportMsg] = useState<Record<string, { text: string; isError: boolean }>>({})
+  const [importedIds, setImportedIds] = useState<Set<string>>(new Set())
 
   // ── Importa giornata precedente ───────────────────────────────────────────
   const [prevGiornata, setPrevGiornata] = useState('')
@@ -209,6 +212,37 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
     } catch (e) {
       setPrevStatus('error')
       setPrevMsg((e as Error).message)
+    }
+  }
+
+  // ── Importa Excel in DB ───────────────────────────────────────────────────
+
+  const handleImportExcel = async (entry: ArchivioEntry) => {
+    setImportingId(entry.id)
+    setImportMsg((prev) => ({ ...prev, [entry.id]: { text: '', isError: false } }))
+    try {
+      const res = await fetch('/api/voti/import-excel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archivio_id: entry.id }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        setImportMsg((prev) => ({ ...prev, [entry.id]: { text: data.error ?? 'Errore sconosciuto', isError: true } }))
+      } else {
+        setImportedIds((prev) => new Set([...prev, entry.id]))
+        setImportMsg((prev) => ({
+          ...prev,
+          [entry.id]: {
+            text: `${data.inserted} giocatori importati (${data.skippedCoaches} all. saltati)`,
+            isError: false,
+          },
+        }))
+      }
+    } catch (e) {
+      setImportMsg((prev) => ({ ...prev, [entry.id]: { text: (e as Error).message, isError: true } }))
+    } finally {
+      setImportingId(null)
     }
   }
 
@@ -378,6 +412,11 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
                     <p className="text-xs text-gray-400 mt-0.5">
                       {entry.stagione} · G{entry.giornata} · {formatDate(entry.downloaded_at)}
                     </p>
+                    {importMsg[entry.id]?.text && (
+                      <p className={`text-xs mt-0.5 font-medium ${importMsg[entry.id].isError ? 'text-red-500' : 'text-green-600'}`}>
+                        {importMsg[entry.id].text}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
@@ -386,6 +425,17 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
                       className="text-xs px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 font-semibold border border-blue-200 disabled:opacity-40"
                     >
                       {downloadingId === entry.id ? '...' : 'Scarica'}
+                    </button>
+                    <button
+                      onClick={() => handleImportExcel(entry)}
+                      disabled={importingId === entry.id || importedIds.has(entry.id)}
+                      className={`text-xs px-2.5 py-1.5 rounded-lg font-semibold border disabled:opacity-40 ${
+                        importedIds.has(entry.id)
+                          ? 'bg-green-50 text-green-600 border-green-200'
+                          : 'bg-purple-50 text-purple-600 border-purple-200'
+                      }`}
+                    >
+                      {importingId === entry.id ? '...' : importedIds.has(entry.id) ? 'Importato' : 'Importa'}
                     </button>
                     {confirmDeleteId === entry.id ? (
                       <>
