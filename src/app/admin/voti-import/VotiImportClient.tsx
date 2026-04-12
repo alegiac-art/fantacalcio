@@ -47,6 +47,11 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
+  // ── Importa giornata precedente ───────────────────────────────────────────
+  const [prevGiornata, setPrevGiornata] = useState('')
+  const [prevStatus, setPrevStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [prevMsg, setPrevMsg] = useState('')
+
   // ── Elimina voce archivio ─────────────────────────────────────────────────
 
   const handleDelete = async (entry: ArchivioEntry) => {
@@ -135,6 +140,50 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
     } catch (e) {
       setDownloadStatus('error')
       setDownloadMsg((e as Error).message)
+    }
+  }
+
+  const handleImportPrev = async () => {
+    const g = parseInt(prevGiornata, 10)
+    if (!g || g < 1 || g > 38) {
+      setPrevMsg('Inserisci un numero di giornata valido (1–38)')
+      setPrevStatus('error')
+      return
+    }
+    setPrevStatus('loading')
+    setPrevMsg('')
+    try {
+      const res = await fetch('/api/voti/import-previous', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ giornata: g }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        setPrevStatus('error')
+        setPrevMsg(data.error ?? 'Errore sconosciuto')
+        return
+      }
+      setPrevStatus('done')
+      setPrevMsg(`Archiviato: ${data.filename} (${formatBytes(data.bytes)})`)
+      const newEntry: ArchivioEntry = {
+        id: crypto.randomUUID(),
+        stagione: data.stagione,
+        giornata: data.giornata,
+        filename: data.filename,
+        storage_path: data.filename,
+        downloaded_at: new Date().toISOString(),
+      }
+      setArchivio((prev) => {
+        const filtered = prev.filter(
+          (e) => !(e.stagione === newEntry.stagione && e.giornata === newEntry.giornata)
+        )
+        return [newEntry, ...filtered]
+      })
+      setPrevGiornata('')
+    } catch (e) {
+      setPrevStatus('error')
+      setPrevMsg((e as Error).message)
     }
   }
 
@@ -242,6 +291,43 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
           )}
         </div>
       )}
+
+      {/* Card: Importa giornata precedente */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+        <h2 className="font-bold text-gray-700 text-sm mb-1">Importa voti giornata precedente</h2>
+        <p className="text-xs text-gray-400 mb-3">
+          Inserisci il numero di giornata (1–38) per scaricare e archiviare i voti di una giornata passata.
+        </p>
+        <div className="flex gap-2">
+          <input
+            type="number"
+            min={1}
+            max={38}
+            value={prevGiornata}
+            onChange={(e) => {
+              setPrevGiornata(e.target.value)
+              setPrevStatus('idle')
+              setPrevMsg('')
+            }}
+            placeholder="Es. 10"
+            disabled={prevStatus === 'loading'}
+            className="w-24 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300 disabled:opacity-50"
+          />
+          <button
+            onClick={handleImportPrev}
+            disabled={prevStatus === 'loading' || !prevGiornata}
+            className="flex-1 bg-gray-800 text-white font-bold py-2 rounded-xl text-sm disabled:opacity-50 hover:bg-gray-700 transition-colors"
+          >
+            {prevStatus === 'loading' ? 'Importazione...' : 'Ricerca ed importa'}
+          </button>
+        </div>
+        {prevStatus === 'done' && (
+          <p className="text-xs text-green-700 font-semibold mt-2">{prevMsg}</p>
+        )}
+        {prevStatus === 'error' && (
+          <p className="text-xs text-red-600 mt-2">{prevMsg}</p>
+        )}
+      </div>
 
       {/* Archivio */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
