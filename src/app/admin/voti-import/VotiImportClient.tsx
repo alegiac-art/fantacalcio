@@ -44,6 +44,32 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   const [downloadStatus, setDownloadStatus] = useState<'idle' | 'downloading' | 'done' | 'error'>('idle')
   const [downloadMsg, setDownloadMsg] = useState('')
   const [archivio, setArchivio] = useState<ArchivioEntry[]>(initialArchivio)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  // ── Elimina voce archivio ─────────────────────────────────────────────────
+
+  const handleDelete = async (entry: ArchivioEntry) => {
+    setDeletingId(entry.id)
+    setConfirmDeleteId(null)
+    try {
+      const res = await fetch('/api/voti/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: entry.id, storage_path: entry.storage_path }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        alert(`Errore: ${data.error ?? 'Eliminazione fallita'}`)
+      } else {
+        setArchivio((prev) => prev.filter((e) => e.id !== entry.id))
+      }
+    } catch (e) {
+      alert(`Errore: ${(e as Error).message}`)
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   // ── Controlla disponibilità ────────────────────────────────────────────────
 
@@ -231,15 +257,42 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
         ) : (
           <div className="divide-y divide-gray-50">
             {archivio.map((entry) => (
-              <div key={entry.id} className="px-4 py-3 flex items-center gap-3">
-                <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center shrink-0">
-                  <span className="text-xs font-black text-green-700">XLS</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{entry.filename}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {entry.stagione} · G{entry.giornata} · {formatDate(entry.downloaded_at)}
-                  </p>
+              <div key={entry.id} className="px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center shrink-0">
+                    <span className="text-xs font-black text-green-700">XLS</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{entry.filename}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {entry.stagione} · G{entry.giornata} · {formatDate(entry.downloaded_at)}
+                    </p>
+                  </div>
+                  {confirmDeleteId === entry.id ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handleDelete(entry)}
+                        disabled={deletingId === entry.id}
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-red-600 text-white font-bold disabled:opacity-50"
+                      >
+                        {deletingId === entry.id ? '...' : 'Conferma'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-600 font-semibold"
+                      >
+                        Annulla
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteId(entry.id)}
+                      disabled={deletingId !== null}
+                      className="shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 font-semibold border border-red-200 disabled:opacity-40"
+                    >
+                      Elimina
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
