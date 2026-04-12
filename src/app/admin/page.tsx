@@ -78,6 +78,13 @@ export default async function AdminPage() {
       description: 'Configura limiti rosa, soglia gol e fascia per gol aggiuntivo',
       color: 'bg-teal-50 border-teal-100',
     },
+    {
+      href: '/admin/voti-import',
+      icon: '📥',
+      title: 'Import Voti Serie A',
+      description: 'Scarica e archivia i voti ufficiali da PianetaFanta',
+      color: 'bg-indigo-50 border-indigo-100',
+    },
   ]
 
   return (
