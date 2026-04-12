@@ -65,6 +65,10 @@ export default async function DashboardPage() {
     hasSubmittedLineup = !!lineup
   }
 
+  const isDeadlinePassed = nextMatchday?.deadline
+    ? new Date(nextMatchday.deadline) < new Date()
+    : false
+
   const myPosition = myTeam
     ? standings.findIndex((t) => t.id === myTeam.id) + 1
     : null
@@ -218,11 +222,17 @@ export default async function DashboardPage() {
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Prossima giornata</p>
               <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
-                nextMatchday.status === 'open'
+                nextMatchday.status === 'open' && !isDeadlinePassed
                   ? 'bg-green-100 text-green-700'
-                  : 'bg-gray-100 text-gray-500'
+                  : nextMatchday.status === 'open' && isDeadlinePassed
+                    ? 'bg-red-100 text-red-600'
+                    : 'bg-gray-100 text-gray-500'
               }`}>
-                {nextMatchday.status === 'open' ? 'APERTA' : 'IN ARRIVO'}
+                {nextMatchday.status === 'open' && !isDeadlinePassed
+                  ? 'APERTA'
+                  : nextMatchday.status === 'open' && isDeadlinePassed
+                    ? 'SCADUTA'
+                    : 'IN ARRIVO'}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -257,9 +267,13 @@ export default async function DashboardPage() {
                       <span className="text-sm font-semibold">Formazione inviata</span>
                     </div>
                     <Link href="/squadra/formazione" className="text-xs text-green-600 underline font-medium">
-                      Vedi / Modifica
+                      {isDeadlinePassed ? 'Vedi' : 'Vedi / Modifica'}
                     </Link>
                   </div>
+                ) : isDeadlinePassed ? (
+                  <p className="text-xs text-red-500 text-center">
+                    Scadenza superata — formazione non inviata
+                  </p>
                 ) : (
                   <Link
                     href="/squadra"
