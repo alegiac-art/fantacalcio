@@ -85,6 +85,13 @@ export default async function AdminPage() {
       description: 'Scarica e archivia i voti ufficiali da PianetaFanta',
       color: 'bg-indigo-50 border-indigo-100',
     },
+    {
+      href: '/admin/voti-giornata',
+      icon: '📋',
+      title: 'Archivio Voti Importati',
+      description: 'Visualizza, modifica ed elimina i voti importati per giornata',
+      color: 'bg-cyan-50 border-cyan-100',
+    },
   ]
 
   return (
