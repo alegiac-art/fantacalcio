@@ -234,7 +234,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
         setImportMsg((prev) => ({
           ...prev,
           [entry.id]: {
-            text: `${data.inserted} giocatori importati (${data.skippedCoaches} all. saltati)`,
+            text: `${data.inserted} giocatori importati (${data.skippedCoaches} all. saltati${data.duplicatesInFile > 0 ? `, ${data.duplicatesInFile} duplicati nel file` : ''})`,
             isError: false,
           },
         }))

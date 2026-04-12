@@ -139,11 +139,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nessun giocatore trovato nel file (solo allenatori o file vuoto)' }, { status: 422 })
   }
 
+  // Deduplica per codice (tiene l'ultima occorrenza in caso di duplicati nel file)
+  const deduped = Object.values(
+    toInsert.reduce<Record<string, Record<string, unknown>>>((acc, row) => {
+      acc[row.codice as string] = row
+      return acc
+    }, {})
+  )
+
   // Inserimento a batch (max 500 righe per volta)
   const BATCH = 500
   let inserted = 0
-  for (let i = 0; i < toInsert.length; i += BATCH) {
-    const batch = toInsert.slice(i, i + BATCH)
+  const duplicatesInFile = toInsert.length - deduped.length
+  for (let i = 0; i < deduped.length; i += BATCH) {
+    const batch = deduped.slice(i, i + BATCH)
     const { error: insertErr } = await supabase
       .from('voti_giornata')
       .upsert(batch, { onConflict: 'stagione,giornata,codice' })
@@ -161,6 +170,7 @@ export async function POST(request: NextRequest) {
     success: true,
     inserted,
     skippedCoaches,
+    duplicatesInFile,
     stagione: archivio.stagione,
     giornata: archivio.giornata,
     labels: { g: labelG, h: labelH, i: labelI, j: labelJ, k: labelK },
