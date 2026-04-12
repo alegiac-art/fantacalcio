@@ -7,8 +7,15 @@ export const dynamic = 'force-dynamic'
 const BUCKET = 'voti-excel'
 
 function toNum(val: unknown): number | null {
-  if (val === null || val === undefined || val === '') return null
-  const n = Number(val)
+  if (val === null || val === undefined) return null
+  const s = String(val).trim()
+  if (s === '') return null
+  // "s.v." = senza voto → null
+  if (/^s[,.]?v[,.]?$/i.test(s.replace(/\s/g, ''))) return null
+  // Formato italiano: virgola come separatore decimale (es. "7,51" → 7.51)
+  // Rimuove eventuali spazi e converte la virgola in punto
+  const normalized = s.replace(/\s/g, '').replace(',', '.')
+  const n = parseFloat(normalized)
   return isNaN(n) ? null : n
 }
 
@@ -70,8 +77,8 @@ export async function POST(request: NextRequest) {
   const workbook = XLSX.read(arrayBuffer, { type: 'array' })
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
-  // Leggi come array di array (raw)
-  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][]
+  // raw: false → valori come stringhe formattate (preserva "7,51" con virgola italiana invece di trattarla come separatore migliaia)
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false }) as unknown[][]
 
   if (rows.length < 5) {
     return NextResponse.json({ error: 'Il file non contiene dati sufficienti (attese almeno 5 righe)' }, { status: 422 })
