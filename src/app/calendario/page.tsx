@@ -116,6 +116,7 @@ export default async function CalendarioPage() {
                       {new Date(matchday.deadline).toLocaleDateString('it-IT', {
                         day: 'numeric', month: 'short',
                         hour: '2-digit', minute: '2-digit',
+                        timeZone: 'Europe/Rome',
                       })}
                     </p>
                   )}

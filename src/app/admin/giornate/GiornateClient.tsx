@@ -57,7 +57,7 @@ export default function GiornateClient({ league, initialMatchdays, teams, initia
         .insert({
           league_id: league.id,
           number: newNumber,
-          deadline: newDeadline || null,
+          deadline: newDeadline ? new Date(newDeadline).toISOString() : null,
           status: 'upcoming',
         })
         .select()
@@ -278,6 +278,7 @@ export default function GiornateClient({ league, initialMatchdays, teams, initia
                       Scadenza:{' '}
                       {new Date(matchday.deadline).toLocaleDateString('it-IT', {
                         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                        timeZone: 'Europe/Rome',
                       })}
                     </p>
                   )}

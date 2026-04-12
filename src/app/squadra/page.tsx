@@ -213,6 +213,7 @@ export default async function SquadraPage() {
                 {new Date(openMatchday.deadline).toLocaleDateString('it-IT', {
                   weekday: 'long', day: 'numeric', month: 'long',
                   hour: '2-digit', minute: '2-digit',
+                  timeZone: 'Europe/Rome',
                 })}
               </p>
             )}
