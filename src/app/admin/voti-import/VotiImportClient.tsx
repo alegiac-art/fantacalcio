@@ -46,11 +46,36 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   const [archivio, setArchivio] = useState<ArchivioEntry[]>(initialArchivio)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
 
   // ── Importa giornata precedente ───────────────────────────────────────────
   const [prevGiornata, setPrevGiornata] = useState('')
   const [prevStatus, setPrevStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   const [prevMsg, setPrevMsg] = useState('')
+
+  // ── Scarica file in locale ────────────────────────────────────────────────
+
+  const handleDownloadFile = async (entry: ArchivioEntry) => {
+    setDownloadingId(entry.id)
+    try {
+      const res = await fetch(`/api/voti/signed-url?path=${encodeURIComponent(entry.storage_path)}`)
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        alert(`Errore: ${data.error ?? 'URL non disponibile'}`)
+        return
+      }
+      const a = document.createElement('a')
+      a.href = data.url
+      a.download = entry.filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    } catch (e) {
+      alert(`Errore: ${(e as Error).message}`)
+    } finally {
+      setDownloadingId(null)
+    }
+  }
 
   // ── Elimina voce archivio ─────────────────────────────────────────────────
 
@@ -354,31 +379,40 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
                       {entry.stagione} · G{entry.giornata} · {formatDate(entry.downloaded_at)}
                     </p>
                   </div>
-                  {confirmDeleteId === entry.id ? (
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={() => handleDelete(entry)}
-                        disabled={deletingId === entry.id}
-                        className="text-xs px-2.5 py-1.5 rounded-lg bg-red-600 text-white font-bold disabled:opacity-50"
-                      >
-                        {deletingId === entry.id ? '...' : 'Conferma'}
-                      </button>
-                      <button
-                        onClick={() => setConfirmDeleteId(null)}
-                        className="text-xs px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-600 font-semibold"
-                      >
-                        Annulla
-                      </button>
-                    </div>
-                  ) : (
+                  <div className="flex items-center gap-2 shrink-0">
                     <button
-                      onClick={() => setConfirmDeleteId(entry.id)}
-                      disabled={deletingId !== null}
-                      className="shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 font-semibold border border-red-200 disabled:opacity-40"
+                      onClick={() => handleDownloadFile(entry)}
+                      disabled={downloadingId === entry.id}
+                      className="text-xs px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 font-semibold border border-blue-200 disabled:opacity-40"
                     >
-                      Elimina
+                      {downloadingId === entry.id ? '...' : 'Scarica'}
                     </button>
-                  )}
+                    {confirmDeleteId === entry.id ? (
+                      <>
+                        <button
+                          onClick={() => handleDelete(entry)}
+                          disabled={deletingId === entry.id}
+                          className="text-xs px-2.5 py-1.5 rounded-lg bg-red-600 text-white font-bold disabled:opacity-50"
+                        >
+                          {deletingId === entry.id ? '...' : 'Conferma'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="text-xs px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-600 font-semibold"
+                        >
+                          Annulla
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(entry.id)}
+                        disabled={deletingId !== null}
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 font-semibold border border-red-200 disabled:opacity-40"
+                      >
+                        Elimina
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
