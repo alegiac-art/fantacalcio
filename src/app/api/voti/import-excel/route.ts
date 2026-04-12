@@ -41,15 +41,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'File archivio non trovato' }, { status: 404 })
   }
 
-  // Controlla se già importato
+  // Controlla se già importato (controlla per stagione+giornata, non solo archivio_id)
   const { count } = await supabase
     .from('voti_giornata')
     .select('id', { count: 'exact', head: true })
-    .eq('archivio_id', archivio_id)
+    .eq('stagione', archivio.stagione)
+    .eq('giornata', archivio.giornata)
 
   if (count && count > 0) {
     return NextResponse.json(
-      { error: `Voti già importati per questa giornata (${count} righe). Elimina prima i dati esistenti.` },
+      { error: `Voti già importati per ${archivio.stagione} G${archivio.giornata} (${count} giocatori). Elimina prima i dati esistenti dalla tabella voti_giornata.` },
       { status: 409 }
     )
   }
@@ -145,7 +146,7 @@ export async function POST(request: NextRequest) {
     const batch = toInsert.slice(i, i + BATCH)
     const { error: insertErr } = await supabase
       .from('voti_giornata')
-      .insert(batch)
+      .upsert(batch, { onConflict: 'stagione,giornata,codice' })
 
     if (insertErr) {
       return NextResponse.json(
