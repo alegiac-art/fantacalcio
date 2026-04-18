@@ -200,31 +200,83 @@ export default function ImpostazioniClient({ leagueId, leagueName, initialSettin
         </div>
 
         {/* BONUS GOL PER RUOLO */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-          <h2 className="font-bold text-gray-800 mb-2">Bonus gol per ruolo</h2>
-          <p className="text-xs text-gray-500 mb-3">
-            Secondo il regolamento standard Fantacalcio (non modificabile)
-          </p>
-          <div className="space-y-2">
-            {[
-              { role: 'P', label: 'Portiere', bonus: '+3', color: 'bg-yellow-100 text-yellow-700' },
-              { role: 'D', label: 'Difensore', bonus: '+3', color: 'bg-blue-100 text-blue-700' },
-              { role: 'C', label: 'Centrocampista', bonus: '+2.5', color: 'bg-green-100 text-green-700' },
-              { role: 'A', label: 'Attaccante', bonus: '+2', color: 'bg-red-100 text-red-700' },
-            ].map(({ role, label, bonus, color }) => (
-              <div key={role} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${color}`}>{role}</span>
-                  <span className="text-sm text-gray-700">{label}</span>
-                </div>
-                <span className="text-sm font-bold text-gray-800">{bonus} per gol</span>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-4 py-3 bg-orange-50 border-b border-orange-100">
+            <h2 className="font-bold text-orange-800">Bonus e Malus</h2>
+            <p className="text-xs text-orange-600 mt-0.5">
+              Bonus per gol/assist e malus per cartellini e autogol
+            </p>
+          </div>
+          <div className="p-4 space-y-4">
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Bonus per gol</p>
+            <NumberInput
+              label="Portiere (P)"
+              value={settings.bonuses.goal_P}
+              onChange={(v) => set('bonuses', 'goal_P', v)}
+              color="yellow"
+              min={0} max={10} step={0.5}
+            />
+            <NumberInput
+              label="Difensore (D)"
+              value={settings.bonuses.goal_D}
+              onChange={(v) => set('bonuses', 'goal_D', v)}
+              color="blue"
+              min={0} max={10} step={0.5}
+            />
+            <NumberInput
+              label="Centrocampista (C)"
+              value={settings.bonuses.goal_C}
+              onChange={(v) => set('bonuses', 'goal_C', v)}
+              color="green"
+              min={0} max={10} step={0.5}
+            />
+            <NumberInput
+              label="Attaccante (A)"
+              value={settings.bonuses.goal_A}
+              onChange={(v) => set('bonuses', 'goal_A', v)}
+              color="red"
+              min={0} max={10} step={0.5}
+            />
+
+            <div className="pt-2 border-t border-gray-100">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Bonus assist</p>
+              <NumberInput
+                label="Assist"
+                value={settings.bonuses.assist}
+                onChange={(v) => set('bonuses', 'assist', v)}
+                color="green"
+                min={0} max={5} step={0.5}
+              />
+            </div>
+
+            <div className="pt-2 border-t border-gray-100">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Malus (magnitudine, applicati negativi)</p>
+              <div className="space-y-4">
+                <NumberInput
+                  label="Ammonizione"
+                  value={settings.bonuses.yellow_card}
+                  onChange={(v) => set('bonuses', 'yellow_card', v)}
+                  color="yellow"
+                  min={0} max={5} step={0.5}
+                  description="Valore sottratto al punteggio"
+                />
+                <NumberInput
+                  label="Espulsione"
+                  value={settings.bonuses.red_card}
+                  onChange={(v) => set('bonuses', 'red_card', v)}
+                  color="red"
+                  min={0} max={5} step={0.5}
+                  description="Valore sottratto al punteggio"
+                />
+                <NumberInput
+                  label="Autogol"
+                  value={settings.bonuses.own_goal}
+                  onChange={(v) => set('bonuses', 'own_goal', v)}
+                  color="red"
+                  min={0} max={10} step={0.5}
+                  description="Valore sottratto per ogni autogol"
+                />
               </div>
-            ))}
-            <div className="pt-2 border-t border-gray-100 space-y-1 text-sm text-gray-600">
-              <div className="flex justify-between"><span>Assist</span><span className="font-semibold">+1</span></div>
-              <div className="flex justify-between"><span>Ammonizione</span><span className="font-semibold text-yellow-600">-0.5</span></div>
-              <div className="flex justify-between"><span>Espulsione</span><span className="font-semibold text-red-600">-1</span></div>
-              <div className="flex justify-between"><span>Autogol</span><span className="font-semibold text-red-600">-2</span></div>
             </div>
           </div>
         </div>

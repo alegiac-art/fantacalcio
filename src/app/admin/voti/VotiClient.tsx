@@ -165,7 +165,7 @@ export default function VotiClient({
           if (r && r.rating) {
             total += calcPlayerScore(
               r.players.role, r.rating, r.goals, r.assists,
-              r.yellow_card, r.red_card, r.own_goals
+              r.yellow_card, r.red_card, r.own_goals, settings
             )
             counted++
           }

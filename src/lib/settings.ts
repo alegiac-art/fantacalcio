@@ -10,6 +10,16 @@ export interface LeagueSettings {
     goal_threshold: number
     goal_band: number
   }
+  bonuses: {
+    goal_P: number       // bonus per gol segnato: portiere
+    goal_D: number       // bonus per gol segnato: difensore
+    goal_C: number       // bonus per gol segnato: centrocampista
+    goal_A: number       // bonus per gol segnato: attaccante
+    assist: number       // bonus per assist
+    yellow_card: number  // malus ammonizione (magnitudine positiva, applicata negativa)
+    red_card: number     // malus espulsione
+    own_goal: number     // malus autogol
+  }
 }
 
 export const DEFAULT_SETTINGS: LeagueSettings = {
@@ -23,6 +33,16 @@ export const DEFAULT_SETTINGS: LeagueSettings = {
   scoring: {
     goal_threshold: 66,
     goal_band: 6,
+  },
+  bonuses: {
+    goal_P: 3,
+    goal_D: 3,
+    goal_C: 2.5,
+    goal_A: 2,
+    assist: 1,
+    yellow_card: 0.5,
+    red_card: 1,
+    own_goal: 2,
   },
 }
 
@@ -40,6 +60,16 @@ export function parseSettings(raw: unknown): LeagueSettings {
     scoring: {
       goal_threshold: s.scoring?.goal_threshold ?? DEFAULT_SETTINGS.scoring.goal_threshold,
       goal_band: s.scoring?.goal_band ?? DEFAULT_SETTINGS.scoring.goal_band,
+    },
+    bonuses: {
+      goal_P: s.bonuses?.goal_P ?? DEFAULT_SETTINGS.bonuses.goal_P,
+      goal_D: s.bonuses?.goal_D ?? DEFAULT_SETTINGS.bonuses.goal_D,
+      goal_C: s.bonuses?.goal_C ?? DEFAULT_SETTINGS.bonuses.goal_C,
+      goal_A: s.bonuses?.goal_A ?? DEFAULT_SETTINGS.bonuses.goal_A,
+      assist: s.bonuses?.assist ?? DEFAULT_SETTINGS.bonuses.assist,
+      yellow_card: s.bonuses?.yellow_card ?? DEFAULT_SETTINGS.bonuses.yellow_card,
+      red_card: s.bonuses?.red_card ?? DEFAULT_SETTINGS.bonuses.red_card,
+      own_goal: s.bonuses?.own_goal ?? DEFAULT_SETTINGS.bonuses.own_goal,
     },
   }
 }
@@ -59,15 +89,17 @@ export function calcPlayerScore(
   assists: number,
   yellow_card: boolean,
   red_card: boolean,
-  own_goals: number
+  own_goals: number,
+  settings: LeagueSettings
 ): number {
   if (!rating) return 0
+  const b = settings.bonuses
   let score = rating
-  const goalBonus = role === 'P' ? 3 : role === 'D' ? 3 : role === 'C' ? 2.5 : 2
+  const goalBonus = role === 'P' ? b.goal_P : role === 'D' ? b.goal_D : role === 'C' ? b.goal_C : b.goal_A
   score += goals * goalBonus
-  score += assists * 1
-  if (yellow_card) score -= 0.5
-  if (red_card) score -= 1
-  score -= own_goals * 2
+  score += assists * b.assist
+  if (yellow_card) score -= b.yellow_card
+  if (red_card) score -= b.red_card
+  score -= own_goals * b.own_goal
   return Math.max(0, score)
 }
