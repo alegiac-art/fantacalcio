@@ -14,6 +14,7 @@ type VotiRow = {
   col_g_label: string | null
   col_g: number | null
   voto_fanta: number | null
+  voto_fanta_originale: string | null
   voto_gazzetta_originale: string | null
   col_h_label: string | null
   col_h: number | null
@@ -322,6 +323,7 @@ export default function VotiGiornataClient({ stagioni, giornatePerStagione }: Pr
                     </th>
                   ))}
                   <th className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">VotoOrig.</th>
+                  <th className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">VotoFantaOrig.</th>
                   <th className="px-3 py-2.5"></th>
                 </tr>
               </thead>
@@ -386,6 +388,10 @@ export default function VotiGiornataClient({ stagioni, giornatePerStagione }: Pr
                     {/* VotoGazzettaOriginale */}
                     <td className="px-3 py-2 text-xs text-gray-400 whitespace-nowrap font-mono">
                       {row.voto_gazzetta_originale ?? '—'}
+                    </td>
+                    {/* VotoFantaOriginale */}
+                    <td className="px-3 py-2 text-xs text-gray-400 whitespace-nowrap font-mono">
+                      {row.voto_fanta_originale ?? '—'}
                     </td>
                     {/* Azioni */}
                     <td className="px-2 py-1 whitespace-nowrap">

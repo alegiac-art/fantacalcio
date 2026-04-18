@@ -165,8 +165,10 @@ export async function POST(request: NextRequest) {
     // Sostituisce la virgola decimale col punto e basta
     const agCell = sheet[XLSX.utils.encode_cell({ r: i, c: COL_AG })]
     let votoFanta: number | null = null
+    let votoFantaOrig: string | null = null
     if (agCell && agCell.v !== undefined && agCell.v !== null) {
       const raw = (agCell.w ? String(agCell.w) : String(agCell.v)).trim()
+      votoFantaOrig = raw || null
       const n = parseFloat(raw.replace(',', '.'))
       if (!isNaN(n)) votoFanta = n
     }
@@ -191,6 +193,7 @@ export async function POST(request: NextRequest) {
       col_k_label: labelK,
       col_k: cellK.num,
       voto_fanta: votoFanta,
+      voto_fanta_originale: votoFantaOrig,
     })
   }
 
