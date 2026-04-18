@@ -160,7 +160,16 @@ export async function POST(request: NextRequest) {
     const cellI = readCell(sheet, i, COL_I)
     const cellJ = readCell(sheet, i, COL_J)
     const cellK = readCell(sheet, i, COL_K)
-    const cellAG = readCell(sheet, i, COL_AG, 1) // interi già corretti; virgola decimale gestita dal ramo cell.w
+    // Colonna AG (VotoFanta): valore grezzo senza trasformazioni
+    // Usa cell.w (stringa formattata) se disponibile, altrimenti cell.v
+    // Sostituisce la virgola decimale col punto e basta
+    const agCell = sheet[XLSX.utils.encode_cell({ r: i, c: COL_AG })]
+    let votoFanta: number | null = null
+    if (agCell && agCell.v !== undefined && agCell.v !== null) {
+      const raw = (agCell.w ? String(agCell.w) : String(agCell.v)).trim()
+      const n = parseFloat(raw.replace(',', '.'))
+      if (!isNaN(n)) votoFanta = n
+    }
 
     toInsert.push({
       archivio_id: archivio.id,
@@ -181,7 +190,7 @@ export async function POST(request: NextRequest) {
       col_j: cellJ.num,
       col_k_label: labelK,
       col_k: cellK.num,
-      voto_fanta: cellAG.num,
+      voto_fanta: votoFanta,
     })
   }
 
