@@ -50,6 +50,9 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   const [importingId, setImportingId] = useState<string | null>(null)
   const [importMsg, setImportMsg] = useState<Record<string, { text: string; isError: boolean }>>({})
   const [importedIds, setImportedIds] = useState<Set<string>>(new Set())
+  const [previewId, setPreviewId] = useState<string | null>(null)
+  const [previewData, setPreviewData] = useState<{ filename: string; rows: string[][] } | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   // ── Importa giornata precedente ───────────────────────────────────────────
   const [prevGiornata, setPrevGiornata] = useState('')
@@ -215,6 +218,34 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
     }
   }
 
+  // ── Preview contenuto Excel ───────────────────────────────────────────────
+
+  const handlePreview = async (entry: ArchivioEntry) => {
+    setPreviewId(entry.id)
+    setPreviewData(null)
+    setPreviewLoading(true)
+    try {
+      const res = await fetch(`/api/voti/preview-excel?archivio_id=${entry.id}`)
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        alert(`Errore preview: ${data.error ?? 'Sconosciuto'}`)
+        setPreviewId(null)
+      } else {
+        setPreviewData(data)
+      }
+    } catch (e) {
+      alert(`Errore: ${(e as Error).message}`)
+      setPreviewId(null)
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  const closePreview = () => {
+    setPreviewId(null)
+    setPreviewData(null)
+  }
+
   // ── Importa Excel in DB ───────────────────────────────────────────────────
 
   const handleImportExcel = async (entry: ArchivioEntry) => {
@@ -255,6 +286,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
     : false
 
   return (
+    <>
     <div className="px-4 py-4 space-y-4">
 
       {/* Card: Controlla nuovi voti */}
@@ -420,6 +452,13 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
+                      onClick={() => handlePreview(entry)}
+                      disabled={previewLoading && previewId === entry.id}
+                      className="text-xs px-2.5 py-1.5 rounded-lg bg-gray-50 text-gray-600 font-semibold border border-gray-200 disabled:opacity-40"
+                    >
+                      {previewLoading && previewId === entry.id ? '...' : 'Preview contenuto'}
+                    </button>
+                    <button
                       onClick={() => handleDownloadFile(entry)}
                       disabled={downloadingId === entry.id}
                       className="text-xs px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 font-semibold border border-blue-200 disabled:opacity-40"
@@ -471,5 +510,72 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       </div>
 
     </div>
+    {/* ── Modal preview Excel ── */}
+    {previewData && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+        onClick={closePreview}
+      >
+        <div
+          className="bg-white rounded-2xl shadow-xl w-full max-w-5xl max-h-[80vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <div>
+              <p className="font-bold text-gray-800 text-sm">Preview contenuto</p>
+              <p className="text-xs text-gray-400 mt-0.5">{previewData.filename} — prime {previewData.rows.length} righe</p>
+            </div>
+            <button
+              onClick={closePreview}
+              className="text-gray-400 hover:text-gray-700 text-xl font-bold leading-none"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Tabella */}
+          <div className="overflow-auto flex-1 p-4">
+            <table className="text-xs border-collapse w-max min-w-full">
+              <thead>
+                <tr>
+                  <th className="border border-gray-200 bg-gray-50 px-2 py-1 text-gray-400 font-semibold text-right w-8">#</th>
+                  {(previewData.rows[0] ?? []).map((_, ci) => (
+                    <th key={ci} className="border border-gray-200 bg-gray-50 px-2 py-1 text-gray-500 font-semibold whitespace-nowrap">
+                      {XLSX_COL_LABEL(ci)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {previewData.rows.map((row, ri) => (
+                  <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <td className="border border-gray-100 px-2 py-1 text-gray-300 text-right font-mono">{ri + 1}</td>
+                    {row.map((cell, ci) => (
+                      <td key={ci} className="border border-gray-100 px-2 py-1 text-gray-700 whitespace-nowrap font-mono">
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
+}
+
+/** Converte indice colonna 0-based in etichetta Excel (A, B, …, Z, AA, AB, …) */
+function XLSX_COL_LABEL(n: number): string {
+  let label = ''
+  n += 1
+  while (n > 0) {
+    const rem = (n - 1) % 26
+    label = String.fromCharCode(65 + rem) + label
+    n = Math.floor((n - 1) / 26)
+  }
+  return label
 }
