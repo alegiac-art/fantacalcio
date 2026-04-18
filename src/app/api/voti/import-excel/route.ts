@@ -31,10 +31,11 @@ function readCell(sheet: XLSX.WorkSheet, rowIdx: number, colIdx: number, divisor
       }
     }
 
-    // Fallback: cell.v è un intero scalato (es. 65 = 6.5 con divisor=10, 602 = 6.02 con divisor=100)
+    // Fallback: cell.v è un intero scalato solo se divisor > 1
+    // (es. 602 = 6.02 con divisor=100; con divisor=1 il valore intero è già corretto)
     let v = typeof cell.v === 'number' ? cell.v : parseFloat(String(cell.v))
     if (isNaN(v)) return { display, num: null }
-    if (Number.isInteger(v) && v >= divisor) v = v / divisor
+    if (divisor > 1 && Number.isInteger(v) && v >= divisor) v = v / divisor
     return { display, num: Math.round(v * 10) / 10 }
   }
 
@@ -159,7 +160,7 @@ export async function POST(request: NextRequest) {
     const cellI = readCell(sheet, i, COL_I)
     const cellJ = readCell(sheet, i, COL_J)
     const cellK = readCell(sheet, i, COL_K)
-    const cellAG = readCell(sheet, i, COL_AG, 10) // valori con 1 decimale, scala ×10
+    const cellAG = readCell(sheet, i, COL_AG, 1) // interi già corretti; virgola decimale gestita dal ramo cell.w
 
     toInsert.push({
       archivio_id: archivio.id,
