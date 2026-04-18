@@ -118,6 +118,7 @@ export async function POST(request: NextRequest) {
   const COL_I = 8
   const COL_J = 9
   const COL_K = 10
+  const COL_AG = 32 // AG = colonna "VG" (VotoFanta)
 
   // Colonna G rinominata "VotoGazzetta"; le altre usano l'intestazione del file
   const labelG = 'VotoGazzetta'
@@ -143,12 +144,13 @@ export async function POST(request: NextRequest) {
       continue
     }
 
-    // Leggi G-K direttamente dalla cella (evita problemi di formato/locale)
+    // Leggi G-K e AG direttamente dalla cella (evita problemi di formato/locale)
     const cellG = readCell(sheet, i, COL_G)
     const cellH = readCell(sheet, i, COL_H)
     const cellI = readCell(sheet, i, COL_I)
     const cellJ = readCell(sheet, i, COL_J)
     const cellK = readCell(sheet, i, COL_K)
+    const cellAG = readCell(sheet, i, COL_AG)
 
     toInsert.push({
       archivio_id: archivio.id,
@@ -169,6 +171,7 @@ export async function POST(request: NextRequest) {
       col_j: cellJ.num,
       col_k_label: labelK,
       col_k: cellK.num,
+      voto_fanta: cellAG.num,
     })
   }
 

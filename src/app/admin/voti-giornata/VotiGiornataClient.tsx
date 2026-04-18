@@ -13,6 +13,7 @@ type VotiRow = {
   ruolo: string | null
   col_g_label: string | null
   col_g: number | null
+  voto_fanta: number | null
   voto_gazzetta_originale: string | null
   col_h_label: string | null
   col_h: number | null
@@ -314,6 +315,7 @@ export default function VotiGiornataClient({ stagioni, giornatePerStagione }: Pr
                   <th className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">Nome</th>
                   <th className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">Squadra</th>
                   <th className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">G</th>
+                  <th className="px-3 py-2.5 text-center font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">VotoFanta</th>
                   {NUM_COLS.map((col) => (
                     <th key={col} className="px-3 py-2.5 text-center font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                       {labels[col]}
@@ -342,6 +344,10 @@ export default function VotiGiornataClient({ stagioni, giornatePerStagione }: Pr
                     <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{row.squadra ?? '—'}</td>
                     {/* Giornata */}
                     <td className="px-3 py-2 text-gray-400 whitespace-nowrap">G{row.giornata}</td>
+                    {/* VotoFanta */}
+                    <td className="px-3 py-2 text-center whitespace-nowrap font-medium text-indigo-700">
+                      {row.voto_fanta !== null ? String(row.voto_fanta) : '—'}
+                    </td>
                     {/* Colonne numeriche editabili */}
                     {NUM_COLS.map((col) => {
                       const isEditing = editingCell?.rowId === row.id && editingCell.col === col
