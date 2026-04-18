@@ -12,20 +12,29 @@ function isSenzaVoto(s: string): boolean {
 }
 
 // Legge una cella direttamente dal foglio, restituisce valore numerico e stringa originale.
-// Usa cell.v (valore JS grezzo) per i numeri — evita qualsiasi problema di formato/locale.
-function readCell(sheet: XLSX.WorkSheet, rowIdx: number, colIdx: number): { display: string; num: number | null } {
+// divisor: scala usata dal file XLS (100 per colonne con 2 decimali, 10 per 1 decimale).
+function readCell(sheet: XLSX.WorkSheet, rowIdx: number, colIdx: number, divisor = 100): { display: string; num: number | null } {
   const addr = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx })
   const cell = sheet[addr]
   if (!cell || cell.v === undefined || cell.v === null) return { display: '', num: null }
 
   if (cell.t === 'n') {
-    let v = typeof cell.v === 'number' ? cell.v : parseFloat(String(cell.v))
     const display = cell.w ? String(cell.w).trim() : String(cell.v)
+
+    // Prova prima cell.w: se contiene virgola o punto come separatore decimale, usalo direttamente
+    // (es. "6,5" → 6.5 senza bisogno del divisore)
+    if (cell.w) {
+      const wStr = String(cell.w).trim()
+      if (/[,.]/.test(wStr)) {
+        const n = parseFloat(wStr.replace(',', '.'))
+        if (!isNaN(n)) return { display: wStr, num: Math.round(n * 10) / 10 }
+      }
+    }
+
+    // Fallback: cell.v è un intero scalato (es. 65 = 6.5 con divisor=10, 602 = 6.02 con divisor=100)
+    let v = typeof cell.v === 'number' ? cell.v : parseFloat(String(cell.v))
     if (isNaN(v)) return { display, num: null }
-    // PianetaFanta XLS memorizza i voti come interi ×100 (es. 6.02 → 602, 7.51 → 751)
-    // Se il valore è un intero ≥ 100, dividi per 100 per ottenere il voto reale
-    if (Number.isInteger(v) && v >= 100) v = v / 100
-    // Arrotonda a 1 decimale
+    if (Number.isInteger(v) && v >= divisor) v = v / divisor
     return { display, num: Math.round(v * 10) / 10 }
   }
 
@@ -150,7 +159,7 @@ export async function POST(request: NextRequest) {
     const cellI = readCell(sheet, i, COL_I)
     const cellJ = readCell(sheet, i, COL_J)
     const cellK = readCell(sheet, i, COL_K)
-    const cellAG = readCell(sheet, i, COL_AG)
+    const cellAG = readCell(sheet, i, COL_AG, 10) // valori con 1 decimale, scala ×10
 
     toInsert.push({
       archivio_id: archivio.id,
