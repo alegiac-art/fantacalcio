@@ -19,10 +19,12 @@ function readCell(sheet: XLSX.WorkSheet, rowIdx: number, colIdx: number): { disp
   if (!cell || cell.v === undefined || cell.v === null) return { display: '', num: null }
 
   if (cell.t === 'n') {
-    // Cella numerica: .v è già il float corretto (es. 7.04)
-    const v = typeof cell.v === 'number' ? cell.v : parseFloat(String(cell.v))
+    let v = typeof cell.v === 'number' ? cell.v : parseFloat(String(cell.v))
     const display = cell.w ? String(cell.w).trim() : String(cell.v)
     if (isNaN(v)) return { display, num: null }
+    // PianetaFanta XLS memorizza i voti come interi ×100 (es. 6.02 → 602, 7.51 → 751)
+    // Se il valore è un intero ≥ 100, dividi per 100 per ottenere il voto reale
+    if (Number.isInteger(v) && v >= 100) v = v / 100
     // Arrotonda a 1 decimale
     return { display, num: Math.round(v * 10) / 10 }
   }
