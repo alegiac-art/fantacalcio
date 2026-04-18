@@ -11,43 +11,47 @@ function isSenzaVoto(s: string): boolean {
   return /^s[.,]?v[.,]?$/i.test(s.replace(/\s/g, ''))
 }
 
-// Legge una cella direttamente dal foglio, restituisce valore numerico e stringa originale.
-// divisor: scala usata dal file XLS (100 per colonne con 2 decimali, 10 per 1 decimale).
-function readCell(sheet: XLSX.WorkSheet, rowIdx: number, colIdx: number, divisor = 100): { display: string; num: number | null } {
+// Legge una cella come testo grezzo (cell.w se disponibile, altrimenti cell.v).
+function cellRawText(sheet: XLSX.WorkSheet, rowIdx: number, colIdx: number): string {
   const addr = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx })
   const cell = sheet[addr]
-  if (!cell || cell.v === undefined || cell.v === null) return { display: '', num: null }
+  if (!cell || cell.v === undefined || cell.v === null) return ''
+  return (cell.w !== undefined ? String(cell.w) : String(cell.v)).trim()
+}
+
+// Parsa un testo italiano (virgola come separatore decimale) → numero.
+// Restituisce null se il testo è vuoto, "s.v." o non parsabile.
+function parseItalianNum(s: string): number | null {
+  if (!s || isSenzaVoto(s)) return null
+  const n = parseFloat(s.replace(/\s/g, '').replace(',', '.'))
+  return isNaN(n) ? null : n
+}
+
+// Legge una cella direttamente dal foglio per le colonne H-K (logica invariata).
+function readCell(sheet: XLSX.WorkSheet, rowIdx: number, colIdx: number, divisor = 100): { num: number | null } {
+  const addr = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx })
+  const cell = sheet[addr]
+  if (!cell || cell.v === undefined || cell.v === null) return { num: null }
 
   if (cell.t === 'n') {
-    const display = cell.w ? String(cell.w).trim() : String(cell.v)
-
-    // Prova prima cell.w: se contiene virgola o punto come separatore decimale, usalo direttamente
-    // (es. "6,5" → 6.5 senza bisogno del divisore)
     if (cell.w) {
       const wStr = String(cell.w).trim()
       if (/[,.]/.test(wStr)) {
         const n = parseFloat(wStr.replace(',', '.'))
-        if (!isNaN(n)) return { display: wStr, num: Math.round(n * 10) / 10 }
+        if (!isNaN(n)) return { num: Math.round(n * 10) / 10 }
       }
     }
-
-    // Fallback: cell.v è un intero scalato solo se divisor > 1
-    // (es. 602 = 6.02 con divisor=100; con divisor=1 il valore intero è già corretto)
     let v = typeof cell.v === 'number' ? cell.v : parseFloat(String(cell.v))
-    if (isNaN(v)) return { display, num: null }
+    if (isNaN(v)) return { num: null }
     if (divisor > 1 && Number.isInteger(v) && v >= divisor) v = v / divisor
-    return { display, num: Math.round(v * 10) / 10 }
+    return { num: Math.round(v * 10) / 10 }
   }
 
-  // Cella testo (es. "s.v.")
   const s = String(cell.w ?? cell.v).trim()
-  if (!s || isSenzaVoto(s)) return { display: s || '', num: null }
-
-  // Prova a parsare come numero italiano (virgola decimale)
+  if (!s || isSenzaVoto(s)) return { num: null }
   const normalized = s.replace(/\s/g, '').replace(',', '.')
   const n = parseFloat(normalized)
-  if (isNaN(n)) return { display: s, num: null }
-  return { display: s, num: Math.round(n * 10) / 10 }
+  return { num: isNaN(n) ? null : Math.round(n * 10) / 10 }
 }
 
 export async function POST(request: NextRequest) {
@@ -154,24 +158,15 @@ export async function POST(request: NextRequest) {
       continue
     }
 
-    // Leggi G-K e AG direttamente dalla cella (evita problemi di formato/locale)
-    const cellG = readCell(sheet, i, COL_G)
+    // Colonne G e AG: leggi come testo grezzo, poi parsa per il campo numerico
+    const rawG  = cellRawText(sheet, i, COL_G)
+    const rawAG = cellRawText(sheet, i, COL_AG)
+
+    // Colonne H-K: usa readCell (logica invariata)
     const cellH = readCell(sheet, i, COL_H)
     const cellI = readCell(sheet, i, COL_I)
     const cellJ = readCell(sheet, i, COL_J)
     const cellK = readCell(sheet, i, COL_K)
-    // Colonna AG (VotoFanta): valore grezzo senza trasformazioni
-    // Usa cell.w (stringa formattata) se disponibile, altrimenti cell.v
-    // Sostituisce la virgola decimale col punto e basta
-    const agCell = sheet[XLSX.utils.encode_cell({ r: i, c: COL_AG })]
-    let votoFanta: number | null = null
-    let votoFantaOrig: string | null = null
-    if (agCell && agCell.v !== undefined && agCell.v !== null) {
-      const raw = (agCell.w ? String(agCell.w) : String(agCell.v)).trim()
-      votoFantaOrig = raw || null
-      const n = parseFloat(raw.replace(',', '.'))
-      if (!isNaN(n)) votoFanta = n
-    }
 
     toInsert.push({
       archivio_id: archivio.id,
@@ -182,8 +177,8 @@ export async function POST(request: NextRequest) {
       squadra: String(row[COL_C] ?? '').trim() || null,
       ruolo: String(row[COL_D] ?? '').trim() || null,
       col_g_label: labelG,
-      col_g: cellG.num,
-      voto_gazzetta_originale: cellG.display || null,
+      col_g: parseItalianNum(rawG),
+      voto_gazzetta_originale: rawG || null,
       col_h_label: labelH,
       col_h: cellH.num,
       col_i_label: labelI,
@@ -192,8 +187,8 @@ export async function POST(request: NextRequest) {
       col_j: cellJ.num,
       col_k_label: labelK,
       col_k: cellK.num,
-      voto_fanta: votoFanta,
-      voto_fanta_originale: votoFantaOrig,
+      voto_fanta: parseItalianNum(rawAG),
+      voto_fanta_originale: rawAG || null,
     })
   }
 
