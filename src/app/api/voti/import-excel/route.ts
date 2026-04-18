@@ -6,17 +6,36 @@ export const dynamic = 'force-dynamic'
 
 const BUCKET = 'voti-excel'
 
-function toNum(val: unknown): number | null {
-  if (val === null || val === undefined) return null
-  const s = String(val).trim()
-  if (s === '') return null
-  // "s.v." = senza voto → null
-  if (/^s[,.]?v[,.]?$/i.test(s.replace(/\s/g, ''))) return null
-  // Formato italiano: virgola come separatore decimale (es. "7,51" → 7.51)
-  // Rimuove eventuali spazi e converte la virgola in punto
+function isSenzaVoto(s: string): boolean {
+  // "s.v.", "s,v,", "sv", "S.V." ecc.
+  return /^s[.,]?v[.,]?$/i.test(s.replace(/\s/g, ''))
+}
+
+// Legge una cella direttamente dal foglio, restituisce valore numerico e stringa originale.
+// Usa cell.v (valore JS grezzo) per i numeri — evita qualsiasi problema di formato/locale.
+function readCell(sheet: XLSX.WorkSheet, rowIdx: number, colIdx: number): { display: string; num: number | null } {
+  const addr = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx })
+  const cell = sheet[addr]
+  if (!cell || cell.v === undefined || cell.v === null) return { display: '', num: null }
+
+  if (cell.t === 'n') {
+    // Cella numerica: .v è già il float corretto (es. 7.04)
+    const v = typeof cell.v === 'number' ? cell.v : parseFloat(String(cell.v))
+    const display = cell.w ? String(cell.w).trim() : String(cell.v)
+    if (isNaN(v)) return { display, num: null }
+    // Arrotonda a 1 decimale
+    return { display, num: Math.round(v * 10) / 10 }
+  }
+
+  // Cella testo (es. "s.v.")
+  const s = String(cell.w ?? cell.v).trim()
+  if (!s || isSenzaVoto(s)) return { display: s || '', num: null }
+
+  // Prova a parsare come numero italiano (virgola decimale)
   const normalized = s.replace(/\s/g, '').replace(',', '.')
   const n = parseFloat(normalized)
-  return isNaN(n) ? null : n
+  if (isNaN(n)) return { display: s, num: null }
+  return { display: s, num: Math.round(n * 10) / 10 }
 }
 
 export async function POST(request: NextRequest) {
@@ -77,8 +96,8 @@ export async function POST(request: NextRequest) {
   const workbook = XLSX.read(arrayBuffer, { type: 'array' })
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
-  // raw: false → valori come stringhe formattate (preserva "7,51" con virgola italiana invece di trattarla come separatore migliaia)
-  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false }) as unknown[][]
+  // Leggi tutte le righe come stringhe per colonne testo (A-D)
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true }) as unknown[][]
 
   if (rows.length < 5) {
     return NextResponse.json({ error: 'Il file non contiene dati sufficienti (attese almeno 5 righe)' }, { status: 422 })
@@ -98,7 +117,8 @@ export async function POST(request: NextRequest) {
   const COL_J = 9
   const COL_K = 10
 
-  const labelG = String(headers[COL_G] || 'G').trim()
+  // Colonna G rinominata "VotoGazzetta"; le altre usano l'intestazione del file
+  const labelG = 'VotoGazzetta'
   const labelH = String(headers[COL_H] || 'H').trim()
   const labelI = String(headers[COL_I] || 'I').trim()
   const labelJ = String(headers[COL_J] || 'J').trim()
@@ -121,6 +141,13 @@ export async function POST(request: NextRequest) {
       continue
     }
 
+    // Leggi G-K direttamente dalla cella (evita problemi di formato/locale)
+    const cellG = readCell(sheet, i, COL_G)
+    const cellH = readCell(sheet, i, COL_H)
+    const cellI = readCell(sheet, i, COL_I)
+    const cellJ = readCell(sheet, i, COL_J)
+    const cellK = readCell(sheet, i, COL_K)
+
     toInsert.push({
       archivio_id: archivio.id,
       stagione: archivio.stagione,
@@ -130,15 +157,16 @@ export async function POST(request: NextRequest) {
       squadra: String(row[COL_C] ?? '').trim() || null,
       ruolo: String(row[COL_D] ?? '').trim() || null,
       col_g_label: labelG,
-      col_g: toNum(row[COL_G]),
+      col_g: cellG.num,
+      voto_gazzetta_originale: cellG.display || null,
       col_h_label: labelH,
-      col_h: toNum(row[COL_H]),
+      col_h: cellH.num,
       col_i_label: labelI,
-      col_i: toNum(row[COL_I]),
+      col_i: cellI.num,
       col_j_label: labelJ,
-      col_j: toNum(row[COL_J]),
+      col_j: cellJ.num,
       col_k_label: labelK,
-      col_k: toNum(row[COL_K]),
+      col_k: cellK.num,
     })
   }
 

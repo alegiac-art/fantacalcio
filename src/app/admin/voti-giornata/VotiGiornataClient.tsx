@@ -13,6 +13,7 @@ type VotiRow = {
   ruolo: string | null
   col_g_label: string | null
   col_g: number | null
+  voto_gazzetta_originale: string | null
   col_h_label: string | null
   col_h: number | null
   col_i_label: string | null
@@ -112,13 +113,13 @@ export default function VotiGiornataClient({ stagioni, giornatePerStagione }: Pr
   // ── Intestazioni colonne numeriche (dal primo row) ────────────────────────
   const labels = rows[0]
     ? {
-        col_g: rows[0].col_g_label || 'G',
+        col_g: 'VotoGazzetta',
         col_h: rows[0].col_h_label || 'H',
         col_i: rows[0].col_i_label || 'I',
         col_j: rows[0].col_j_label || 'J',
         col_k: rows[0].col_k_label || 'K',
       }
-    : { col_g: 'G', col_h: 'H', col_i: 'I', col_j: 'J', col_k: 'K' }
+    : { col_g: 'VotoGazzetta', col_h: 'H', col_i: 'I', col_j: 'J', col_k: 'K' }
 
   // ── Salva cella editata ───────────────────────────────────────────────────
   const saveCell = async () => {
@@ -318,6 +319,7 @@ export default function VotiGiornataClient({ stagioni, giornatePerStagione }: Pr
                       {labels[col]}
                     </th>
                   ))}
+                  <th className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">VotoOrig.</th>
                   <th className="px-3 py-2.5"></th>
                 </tr>
               </thead>
@@ -375,6 +377,10 @@ export default function VotiGiornataClient({ stagioni, giornatePerStagione }: Pr
                         </td>
                       )
                     })}
+                    {/* VotoGazzettaOriginale */}
+                    <td className="px-3 py-2 text-xs text-gray-400 whitespace-nowrap font-mono">
+                      {row.voto_gazzetta_originale ?? '—'}
+                    </td>
                     {/* Azioni */}
                     <td className="px-2 py-1 whitespace-nowrap">
                       {confirmDeleteId === row.id ? (
