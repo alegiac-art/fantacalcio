@@ -16,9 +16,11 @@ export interface LeagueSettings {
     goal_C: number       // bonus per gol segnato: centrocampista
     goal_A: number       // bonus per gol segnato: attaccante
     assist: number       // bonus per assist
-    yellow_card: number  // malus ammonizione (magnitudine positiva, applicata negativa)
-    red_card: number     // malus espulsione
-    own_goal: number     // malus autogol
+    yellow_card: number    // malus ammonizione (magnitudine positiva, applicata negativa)
+    red_card: number       // malus espulsione
+    own_goal: number       // malus autogol
+    missed_penalty: number // malus rigore sbagliato
+    saved_penalty: number  // bonus rigore parato
   }
 }
 
@@ -43,6 +45,8 @@ export const DEFAULT_SETTINGS: LeagueSettings = {
     yellow_card: 0.5,
     red_card: 1,
     own_goal: 2,
+    missed_penalty: 3,
+    saved_penalty: 3,
   },
 }
 
@@ -70,6 +74,8 @@ export function parseSettings(raw: unknown): LeagueSettings {
       yellow_card: s.bonuses?.yellow_card ?? DEFAULT_SETTINGS.bonuses.yellow_card,
       red_card: s.bonuses?.red_card ?? DEFAULT_SETTINGS.bonuses.red_card,
       own_goal: s.bonuses?.own_goal ?? DEFAULT_SETTINGS.bonuses.own_goal,
+      missed_penalty: s.bonuses?.missed_penalty ?? DEFAULT_SETTINGS.bonuses.missed_penalty,
+      saved_penalty: s.bonuses?.saved_penalty ?? DEFAULT_SETTINGS.bonuses.saved_penalty,
     },
   }
 }

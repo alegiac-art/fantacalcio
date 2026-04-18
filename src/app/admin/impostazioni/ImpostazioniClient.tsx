@@ -276,7 +276,27 @@ export default function ImpostazioniClient({ leagueId, leagueName, initialSettin
                   min={0} max={10} step={0.5}
                   description="Valore sottratto per ogni autogol"
                 />
+                <NumberInput
+                  label="Rigore sbagliato"
+                  value={settings.bonuses.missed_penalty}
+                  onChange={(v) => set('bonuses', 'missed_penalty', v)}
+                  color="red"
+                  min={0} max={10} step={0.5}
+                  description="Valore sottratto per ogni rigore sbagliato"
+                />
               </div>
+            </div>
+
+            <div className="pt-2 border-t border-gray-100">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Bonus speciali</p>
+              <NumberInput
+                label="Rigore parato"
+                value={settings.bonuses.saved_penalty}
+                onChange={(v) => set('bonuses', 'saved_penalty', v)}
+                color="yellow"
+                min={0} max={10} step={0.5}
+                description="Bonus per ogni rigore parato (portiere)"
+              />
             </div>
           </div>
         </div>
