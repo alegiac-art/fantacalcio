@@ -112,8 +112,10 @@ export async function POST(request: NextRequest) {
   const workbook = XLSX.read(arrayBuffer, { type: 'array' })
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
-  // Leggi tutte le righe come stringhe per colonne testo (A-D)
+  // raw: true  → valori numerici grezzi (per codice, logica H-K)
+  // raw: false → stringhe formattate (per _originale: esattamente come appaiono in Excel)
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true }) as unknown[][]
+  const rowsText: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false }) as string[][]
 
   if (rows.length < 5) {
     return NextResponse.json({ error: 'Il file non contiene dati sufficienti (attese almeno 5 righe)' }, { status: 422 })
@@ -158,9 +160,9 @@ export async function POST(request: NextRequest) {
       continue
     }
 
-    // Colonne G e AG: leggi come testo grezzo, poi parsa per il campo numerico
-    const rawG  = cellRawText(sheet, i, COL_G)
-    const rawAG = cellRawText(sheet, i, COL_AG)
+    // Colonne G e AG: testo formattato esattamente come appare in Excel (raw: false)
+    const rawG  = String(rowsText[i]?.[COL_G]  ?? '').trim()
+    const rawAG = String(rowsText[i]?.[COL_AG] ?? '').trim()
 
     // Colonne H-K: usa readCell (logica invariata)
     const cellH = readCell(sheet, i, COL_H)
