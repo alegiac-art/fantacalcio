@@ -78,8 +78,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Upload fallito: ${uploadErr.message}` }, { status: 500 })
     }
 
-    // 6. Salva record in voti_archivio e restituisce l'id reale
-    const { data: archivioRow } = await supabase.from('voti_archivio').upsert(
+    // 6. Salva record in voti_archivio (service client per bypassare RLS)
+    const { data: archivioRow } = await serviceClient.from('voti_archivio').upsert(
       { stagione, giornata, filename, storage_path: filename },
       { onConflict: 'stagione,giornata' }
     ).select('id').single()

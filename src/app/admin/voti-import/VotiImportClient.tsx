@@ -225,7 +225,9 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
     setPreviewData(null)
     setPreviewLoading(true)
     try {
-      const res = await fetch(`/api/voti/preview-excel?archivio_id=${entry.id}`)
+      const res = await fetch(
+        `/api/voti/preview-excel?archivio_id=${entry.id}&storage_path=${encodeURIComponent(entry.storage_path)}`
+      )
       const data = await res.json()
       if (!res.ok || data.error) {
         alert(`Errore preview: ${data.error ?? 'Sconosciuto'}`)

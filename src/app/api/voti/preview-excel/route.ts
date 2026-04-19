@@ -21,13 +21,26 @@ export async function GET(request: NextRequest) {
   // Usa service client per bypassare RLS sul lookup
   const serviceClient = createServiceClient()
 
-  const { data: archivio, error: archivioErr } = await serviceClient
+  const storage_path = request.nextUrl.searchParams.get('storage_path') ?? ''
+
+  let { data: archivio } = await serviceClient
     .from('voti_archivio')
     .select('storage_path, filename')
     .eq('id', archivio_id)
     .single()
 
-  if (archivioErr || !archivio) {
+  // Fallback: se l'id è fittizio (UUID generato lato client prima del fix),
+  // cerca per storage_path passato esplicitamente dal client
+  if (!archivio && storage_path) {
+    const { data: fallback } = await serviceClient
+      .from('voti_archivio')
+      .select('storage_path, filename')
+      .eq('storage_path', storage_path)
+      .single()
+    archivio = fallback ?? null
+  }
+
+  if (!archivio) {
     return NextResponse.json({ error: `File archivio non trovato (id: ${archivio_id})` }, { status: 404 })
   }
 
