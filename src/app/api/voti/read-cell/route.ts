@@ -57,8 +57,8 @@ export async function GET(request: NextRequest) {
   }
 
   const arrayBuffer = await fileData.arrayBuffer()
-  // cellText: true → SheetJS calcola cell.w dal formato numerico della cella
-  const workbook = XLSX.read(arrayBuffer, { type: 'array', cellText: true, cellNF: true })
+  // raw: false → SheetJS usa sempre la stringa formattata (cell.w) come valore
+  const workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false, cellText: true })
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
   if (!sheet['!ref']) {
@@ -67,33 +67,20 @@ export async function GET(request: NextRequest) {
 
   const range = XLSX.utils.decode_range(sheet['!ref'])
   if (decoded.r > range.e.r || decoded.c > range.e.c) {
-    return NextResponse.json({
-      cell: cellRef,
-      w: null,
-      v: null,
-      t: null,
-      z: null,
-      filename: archivio.filename,
-    })
+    return NextResponse.json({ cell: cellRef, value: '(fuori range)', filename: archivio.filename })
   }
 
   const addr = XLSX.utils.encode_cell(decoded)
   const cell = sheet[addr] as XLSX.CellObject | undefined
 
-  if (!cell) {
-    return NextResponse.json({ cell: cellRef, w: null, v: null, t: null, z: null, filename: archivio.filename })
+  if (!cell || cell.v === undefined || cell.v === null) {
+    return NextResponse.json({ cell: cellRef, value: '', filename: archivio.filename })
   }
 
-  return NextResponse.json({
-    cell: cellRef,
-    filename: archivio.filename,
-    // w = stringa formattata calcolata da SheetJS (come Excel la mostrerebbe)
-    w: cell.w ?? null,
-    // v = valore grezzo (numero, stringa, booleano, data)
-    v: cell.v !== undefined ? String(cell.v) : null,
-    // t = tipo cella: 'n'=numero, 's'=testo, 'b'=booleano, 'd'=data, 'e'=errore
-    t: cell.t ?? null,
-    // z = formato numerico (pattern della cella, es. "0.00" o "General")
-    z: (cell as XLSX.CellObject & { z?: string }).z ?? null,
-  })
+  // cell.w è la stringa formattata calcolata da SheetJS dal formato della cella.
+  // String(cell.v) è il fallback se cell.w non è disponibile.
+  // Nessuna altra trasformazione.
+  const value = cell.w !== undefined ? String(cell.w) : String(cell.v)
+
+  return NextResponse.json({ cell: cellRef, value, filename: archivio.filename })
 }
