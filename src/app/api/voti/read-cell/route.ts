@@ -57,30 +57,22 @@ export async function GET(request: NextRequest) {
   }
 
   const arrayBuffer = await fileData.arrayBuffer()
-  // raw: false → SheetJS usa sempre la stringa formattata (cell.w) come valore
-  const workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false, cellText: true })
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' })
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
   if (!sheet['!ref']) {
     return NextResponse.json({ error: 'Il foglio è vuoto' }, { status: 422 })
   }
 
-  const range = XLSX.utils.decode_range(sheet['!ref'])
-  if (decoded.r > range.e.r || decoded.c > range.e.c) {
-    return NextResponse.json({ cell: cellRef, value: '(fuori range)', filename: archivio.filename })
-  }
+  // raw: false → ogni cella viene restituita come stringa formattata (cell.w),
+  // mai convertita in numero JavaScript. defval: '' per celle vuote.
+  const rows = XLSX.utils.sheet_to_json<string[]>(sheet, {
+    header: 1,
+    raw: false,
+    defval: '',
+  }) as string[][]
 
-  const addr = XLSX.utils.encode_cell(decoded)
-  const cell = sheet[addr] as XLSX.CellObject | undefined
-
-  if (!cell || cell.v === undefined || cell.v === null) {
-    return NextResponse.json({ cell: cellRef, value: '', filename: archivio.filename })
-  }
-
-  // cell.w è la stringa formattata calcolata da SheetJS dal formato della cella.
-  // String(cell.v) è il fallback se cell.w non è disponibile.
-  // Nessuna altra trasformazione.
-  const value = cell.w !== undefined ? String(cell.w) : String(cell.v)
+  const value: string = rows[decoded.r]?.[decoded.c] ?? ''
 
   return NextResponse.json({ cell: cellRef, value, filename: archivio.filename })
 }
