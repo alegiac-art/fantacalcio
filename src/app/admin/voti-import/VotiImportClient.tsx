@@ -673,6 +673,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
               <p className="text-2xl font-black text-gray-800 font-mono tracking-tight break-all">
                 {cellResult === '' ? <span className="text-gray-300 italic text-base">(vuota)</span> : cellResult}
               </p>
+              <p className="text-xs text-gray-400">{cellResult.length} {cellResult.length === 1 ? 'carattere' : 'caratteri'}</p>
             </div>
           )}
         </div>
