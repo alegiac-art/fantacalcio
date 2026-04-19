@@ -64,8 +64,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Il foglio è vuoto' }, { status: 422 })
   }
 
-  // raw: false → ogni cella viene restituita come stringa formattata (cell.w),
-  // mai convertita in numero JavaScript. defval: '' per celle vuote.
   const rows = XLSX.utils.sheet_to_json<string[]>(sheet, {
     header: 1,
     raw: false,
@@ -74,5 +72,5 @@ export async function GET(request: NextRequest) {
 
   const value: string = rows[decoded.r]?.[decoded.c] ?? ''
 
-  return NextResponse.json({ cell: cellRef, value, filename: archivio.filename })
+  return NextResponse.json({ cell: cellRef, length: value.length, filename: archivio.filename })
 }

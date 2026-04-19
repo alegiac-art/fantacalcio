@@ -57,7 +57,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   // ── Leggi valore cella ────────────────────────────────────────────────────
   const [cellModalEntry, setCellModalEntry] = useState<ArchivioEntry | null>(null)
   const [cellRef, setCellRef] = useState('')
-  const [cellResult, setCellResult] = useState<string | null>(null)
+  const [cellResult, setCellResult] = useState<number | null>(null)
   const [cellLoading, setCellLoading] = useState(false)
   const [cellError, setCellError] = useState('')
 
@@ -284,7 +284,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       if (!res.ok || data.error) {
         setCellError(data.error ?? 'Errore sconosciuto')
       } else {
-        setCellResult(data.value)
+        setCellResult(data.length)
       }
     } catch (e) {
       setCellError((e as Error).message)
@@ -670,10 +670,9 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
           {cellResult !== null && (
             <div className="bg-gray-50 rounded-xl p-4 space-y-1">
               <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Cella {cellRef}</p>
-              <p className="text-2xl font-black text-gray-800 font-mono tracking-tight break-all">
-                {cellResult === '' ? <span className="text-gray-300 italic text-base">(vuota)</span> : cellResult}
+              <p className="text-2xl font-black text-gray-800 font-mono tracking-tight">
+                {cellResult} {cellResult === 1 ? 'carattere' : 'caratteri'}
               </p>
-              <p className="text-xs text-gray-400">{cellResult.length} {cellResult.length === 1 ? 'carattere' : 'caratteri'}</p>
             </div>
           )}
         </div>
