@@ -6,28 +6,6 @@ export const dynamic = 'force-dynamic'
 
 const BUCKET = 'voti-excel'
 
-/**
- * Restituisce il valore display di una cella, applicando la decodifica ×100
- * per le colonne G in poi (stesso comportamento di preview-excel).
- */
-function cellDisplay(cell: XLSX.CellObject | undefined, colIdx: number): string {
-  if (!cell || cell.v === undefined || cell.v === null) return '(vuota)'
-
-  if (cell.t === 's') return String(cell.v)
-
-  if (cell.t === 'n' || cell.t === undefined) {
-    const v = typeof cell.v === 'number' ? cell.v : parseFloat(String(cell.v))
-    if (isNaN(v)) return cell.w ?? ''
-    if (colIdx >= 6 && Number.isInteger(v) && v >= 100 && v <= 1099) {
-      return (v / 100).toFixed(2).replace('.', ',')
-    }
-    if (cell.w !== undefined && cell.w !== '') return cell.w
-    return String(v)
-  }
-
-  return cell.w ?? String(cell.v)
-}
-
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -41,7 +19,6 @@ export async function GET(request: NextRequest) {
 
   if (!cellRef) return NextResponse.json({ error: 'Parametro "cell" obbligatorio (es. H24)' }, { status: 400 })
 
-  // Valida il riferimento cella
   let decoded: { r: number; c: number }
   try {
     decoded = XLSX.utils.decode_cell(cellRef)
@@ -80,7 +57,8 @@ export async function GET(request: NextRequest) {
   }
 
   const arrayBuffer = await fileData.arrayBuffer()
-  const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+  // cellText: true → SheetJS calcola cell.w dal formato numerico della cella
+  const workbook = XLSX.read(arrayBuffer, { type: 'array', cellText: true, cellNF: true })
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
   if (!sheet['!ref']) {
@@ -91,22 +69,31 @@ export async function GET(request: NextRequest) {
   if (decoded.r > range.e.r || decoded.c > range.e.c) {
     return NextResponse.json({
       cell: cellRef,
-      value: '(fuori range)',
-      raw: null,
+      w: null,
+      v: null,
+      t: null,
+      z: null,
       filename: archivio.filename,
     })
   }
 
   const addr = XLSX.utils.encode_cell(decoded)
   const cell = sheet[addr] as XLSX.CellObject | undefined
-  const value = cellDisplay(cell, decoded.c)
-  const raw = cell ? String(cell.v ?? '') : null
+
+  if (!cell) {
+    return NextResponse.json({ cell: cellRef, w: null, v: null, t: null, z: null, filename: archivio.filename })
+  }
 
   return NextResponse.json({
     cell: cellRef,
-    value,
-    raw,
-    type: cell?.t ?? null,
     filename: archivio.filename,
+    // w = stringa formattata calcolata da SheetJS (come Excel la mostrerebbe)
+    w: cell.w ?? null,
+    // v = valore grezzo (numero, stringa, booleano, data)
+    v: cell.v !== undefined ? String(cell.v) : null,
+    // t = tipo cella: 'n'=numero, 's'=testo, 'b'=booleano, 'd'=data, 'e'=errore
+    t: cell.t ?? null,
+    // z = formato numerico (pattern della cella, es. "0.00" o "General")
+    z: (cell as XLSX.CellObject & { z?: string }).z ?? null,
   })
 }

@@ -57,7 +57,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   // ── Leggi valore cella ────────────────────────────────────────────────────
   const [cellModalEntry, setCellModalEntry] = useState<ArchivioEntry | null>(null)
   const [cellRef, setCellRef] = useState('')
-  const [cellResult, setCellResult] = useState<{ value: string; raw: string | null; type: string | null } | null>(null)
+  const [cellResult, setCellResult] = useState<{ w: string | null; v: string | null; t: string | null; z: string | null } | null>(null)
   const [cellLoading, setCellLoading] = useState(false)
   const [cellError, setCellError] = useState('')
 
@@ -284,7 +284,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       if (!res.ok || data.error) {
         setCellError(data.error ?? 'Errore sconosciuto')
       } else {
-        setCellResult({ value: data.value, raw: data.raw, type: data.type })
+        setCellResult({ w: data.w, v: data.v, t: data.t, z: data.z })
       }
     } catch (e) {
       setCellError((e as Error).message)
@@ -668,21 +668,32 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
           )}
 
           {cellResult && (
-            <div className="bg-gray-50 rounded-xl p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Cella {cellRef}</span>
-                {cellResult.type && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-500 font-mono">
-                    tipo: {cellResult.type}
-                  </span>
-                )}
-              </div>
-              <p className="text-2xl font-black text-gray-800 tracking-tight">{cellResult.value}</p>
-              {cellResult.raw !== null && cellResult.raw !== cellResult.value && (
-                <p className="text-xs text-gray-400">
-                  Valore grezzo: <span className="font-mono text-gray-500">{cellResult.raw}</span>
-                </p>
-              )}
+            <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+              <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Cella {cellRef} — valori grezzi SheetJS</p>
+              <table className="w-full text-sm border-collapse">
+                <tbody>
+                  <tr className="border-b border-gray-200">
+                    <td className="py-1.5 pr-3 text-xs text-gray-400 font-semibold w-12">w</td>
+                    <td className="py-1.5 font-mono text-gray-800 font-bold">{cellResult.w ?? <span className="text-gray-300 italic">null</span>}</td>
+                    <td className="py-1.5 pl-3 text-xs text-gray-400">stringa formattata</td>
+                  </tr>
+                  <tr className="border-b border-gray-200">
+                    <td className="py-1.5 pr-3 text-xs text-gray-400 font-semibold">v</td>
+                    <td className="py-1.5 font-mono text-gray-800">{cellResult.v ?? <span className="text-gray-300 italic">null</span>}</td>
+                    <td className="py-1.5 pl-3 text-xs text-gray-400">valore grezzo</td>
+                  </tr>
+                  <tr className="border-b border-gray-200">
+                    <td className="py-1.5 pr-3 text-xs text-gray-400 font-semibold">t</td>
+                    <td className="py-1.5 font-mono text-gray-800">{cellResult.t ?? <span className="text-gray-300 italic">null</span>}</td>
+                    <td className="py-1.5 pl-3 text-xs text-gray-400">tipo (s=testo, n=numero, b=bool)</td>
+                  </tr>
+                  <tr>
+                    <td className="py-1.5 pr-3 text-xs text-gray-400 font-semibold">z</td>
+                    <td className="py-1.5 font-mono text-gray-800">{cellResult.z ?? <span className="text-gray-300 italic">null</span>}</td>
+                    <td className="py-1.5 pl-3 text-xs text-gray-400">formato numerico</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           )}
         </div>
