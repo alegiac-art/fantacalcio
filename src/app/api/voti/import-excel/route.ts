@@ -1,57 +1,66 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 
 export const dynamic = 'force-dynamic'
 
 const BUCKET = 'voti-excel'
 
+// Colonne (1-based, come vuole ExcelJS: A=1, B=2, ..., G=7, ..., AG=33)
+const COL_A  = 1   // codice giocatore
+const COL_B  = 2   // nome
+const COL_C  = 3   // squadra
+const COL_D  = 4   // ruolo
+const COL_G  = 7
+const COL_H  = 8
+const COL_I  = 9
+const COL_J  = 10
+const COL_K  = 11
+const COL_AG = 33  // "VG" = VotoFanta
+
 function isSenzaVoto(s: string): boolean {
-  // "s.v.", "s,v,", "sv", "S.V." ecc.
   return /^s[.,]?v[.,]?$/i.test(s.replace(/\s/g, ''))
 }
 
-// Legge una cella come testo grezzo (cell.w se disponibile, altrimenti cell.v).
-function cellRawText(sheet: XLSX.WorkSheet, rowIdx: number, colIdx: number): string {
-  const addr = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx })
-  const cell = sheet[addr]
-  if (!cell || cell.v === undefined || cell.v === null) return ''
-  return (cell.w !== undefined ? String(cell.w) : String(cell.v)).trim()
-}
-
-// Parsa un testo italiano (virgola come separatore decimale) → numero.
-// Restituisce null se il testo è vuoto, "s.v." o non parsabile.
-function parseItalianNum(s: string): number | null {
-  if (!s || isSenzaVoto(s)) return null
-  const n = parseFloat(s.replace(/\s/g, '').replace(',', '.'))
-  return isNaN(n) ? null : n
-}
-
-// Legge una cella direttamente dal foglio per le colonne H-K (logica invariata).
-function readCell(sheet: XLSX.WorkSheet, rowIdx: number, colIdx: number, divisor = 100): { num: number | null } {
-  const addr = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx })
-  const cell = sheet[addr]
-  if (!cell || cell.v === undefined || cell.v === null) return { num: null }
-
-  if (cell.t === 'n') {
-    if (cell.w) {
-      const wStr = String(cell.w).trim()
-      if (/[,.]/.test(wStr)) {
-        const n = parseFloat(wStr.replace(',', '.'))
-        if (!isNaN(n)) return { num: Math.round(n * 10) / 10 }
-      }
-    }
-    let v = typeof cell.v === 'number' ? cell.v : parseFloat(String(cell.v))
-    if (isNaN(v)) return { num: null }
-    if (divisor > 1 && Number.isInteger(v) && v >= divisor) v = v / divisor
-    return { num: Math.round(v * 10) / 10 }
+/** Valore grezzo della cella come stringa, senza trasformazioni. */
+function cellText(cell: ExcelJS.Cell): string {
+  const v = cell.value
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'string') return v.trim()
+  if (typeof v === 'number') return String(v)
+  if (v instanceof Date) return v.toLocaleDateString('it-IT')
+  // Rich text
+  if (typeof v === 'object' && 'richText' in v) {
+    return (v as ExcelJS.CellRichTextValue).richText.map((r) => r.text).join('').trim()
   }
+  // Formula: usa il risultato
+  if (typeof v === 'object' && 'result' in v) {
+    const res = (v as ExcelJS.CellFormulaValue).result
+    if (res === null || res === undefined) return ''
+    if (typeof res === 'number') return String(res)
+    if (typeof res === 'string') return res.trim()
+  }
+  return String(v).trim()
+}
 
-  const s = String(cell.w ?? cell.v).trim()
-  if (!s || isSenzaVoto(s)) return { num: null }
-  const normalized = s.replace(/\s/g, '').replace(',', '.')
-  const n = parseFloat(normalized)
-  return { num: isNaN(n) ? null : Math.round(n * 10) / 10 }
+/** Valore numerico della cella. Gestisce sia number sia stringhe con virgola italiana. */
+function cellNum(cell: ExcelJS.Cell): number | null {
+  const v = cell.value
+  if (v === null || v === undefined) return null
+  if (typeof v === 'number') return v
+  if (typeof v === 'string') {
+    const n = parseFloat(v.replace(/\s/g, '').replace(',', '.'))
+    return isNaN(n) ? null : n
+  }
+  if (typeof v === 'object' && 'result' in v) {
+    const res = (v as ExcelJS.CellFormulaValue).result
+    if (typeof res === 'number') return res
+    if (typeof res === 'string') {
+      const n = parseFloat((res as string).replace(',', '.'))
+      return isNaN(n) ? null : n
+    }
+  }
+  return null
 }
 
 export async function POST(request: NextRequest) {
@@ -83,7 +92,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'File archivio non trovato' }, { status: 404 })
   }
 
-  // Controlla se già importato (controlla per stagione+giornata, non solo archivio_id)
+  // Controlla se già importato
   const { count } = await supabase
     .from('voti_giornata')
     .select('id', { count: 'exact', head: true })
@@ -107,89 +116,77 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Download file fallito: ${downloadErr?.message}` }, { status: 500 })
   }
 
-  // Parsa Excel
+  // Parsa Excel con ExcelJS
   const arrayBuffer = await fileData.arrayBuffer()
-  const workbook = XLSX.read(arrayBuffer, { type: 'array' })
-  const sheet = workbook.Sheets[workbook.SheetNames[0]]
+  const workbook = new ExcelJS.Workbook()
+  try {
+    await workbook.xlsx.load(arrayBuffer)
+  } catch {
+    return NextResponse.json(
+      { error: 'Impossibile leggere il file. Assicurati che sia in formato XLSX.' },
+      { status: 422 }
+    )
+  }
 
-  // raw: true  → valori numerici grezzi (per codice, logica H-K)
-  // raw: false → stringhe formattate (per _originale: esattamente come appaiono in Excel)
-  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true }) as unknown[][]
-  const rowsText: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false }) as string[][]
-
-  if (rows.length < 5) {
+  const worksheet = workbook.worksheets[0]
+  if (!worksheet || worksheet.rowCount < 5) {
     return NextResponse.json({ error: 'Il file non contiene dati sufficienti (attese almeno 5 righe)' }, { status: 422 })
   }
 
-  // Riga 4 (indice 3) = intestazioni
-  const headers = rows[3] as string[]
-
-  // Mappa le colonne per indice (0-based: A=0, B=1, ..., G=6, H=7, I=8, J=9, K=10)
-  const COL_A = 0  // codice giocatore
-  const COL_B = 1  // nome
-  const COL_C = 2  // squadra
-  const COL_D = 3  // ruolo
-  const COL_G = 6
-  const COL_H = 7
-  const COL_I = 8
-  const COL_J = 9
-  const COL_K = 10
-  const COL_AG = 32 // AG = colonna "VG" (VotoFanta)
-
-  // Colonna G rinominata "VotoGazzetta"; le altre usano l'intestazione del file
+  // Riga 4 = intestazioni
+  const headerRow = worksheet.getRow(4)
   const labelG = 'VotoGazzetta'
-  const labelH = String(headers[COL_H] || 'H').trim()
-  const labelI = String(headers[COL_I] || 'I').trim()
-  const labelJ = String(headers[COL_J] || 'J').trim()
-  const labelK = String(headers[COL_K] || 'K').trim()
+  const labelH = cellText(headerRow.getCell(COL_H)) || 'H'
+  const labelI = cellText(headerRow.getCell(COL_I)) || 'I'
+  const labelJ = cellText(headerRow.getCell(COL_J)) || 'J'
+  const labelK = cellText(headerRow.getCell(COL_K)) || 'K'
 
-  // Righe dati dalla 5 in poi (indice 4+)
+  // Righe dati dalla 5 in poi
   const toInsert: Record<string, unknown>[] = []
   let skippedCoaches = 0
 
-  for (let i = 4; i < rows.length; i++) {
-    const row = rows[i]
-    const codice = String(row[COL_A] ?? '').trim()
+  for (let rowIdx = 5; rowIdx <= worksheet.rowCount; rowIdx++) {
+    const row = worksheet.getRow(rowIdx)
+    const codice = cellText(row.getCell(COL_A))
 
-    // Salta righe vuote
     if (!codice) continue
+    if (codice.toLowerCase().startsWith('all')) { skippedCoaches++; continue }
 
-    // Salta allenatori (codice "all." case-insensitive)
-    if (codice.toLowerCase().startsWith('all')) {
-      skippedCoaches++
-      continue
-    }
+    const gCell  = row.getCell(COL_G)
+    const agCell = row.getCell(COL_AG)
 
-    // Colonne G e AG: testo formattato esattamente come appare in Excel (raw: false)
-    const rawG  = String(rowsText[i]?.[COL_G]  ?? '').trim()
-    const rawAG = String(rowsText[i]?.[COL_AG] ?? '').trim()
+    // Testo grezzo per i campi _originale (esattamente come appare nella cella)
+    const rawG  = cellText(gCell)
+    const rawAG = cellText(agCell)
 
-    // Colonne H-K: usa readCell (logica invariata)
-    const cellH = readCell(sheet, i, COL_H)
-    const cellI = readCell(sheet, i, COL_I)
-    const cellJ = readCell(sheet, i, COL_J)
-    const cellK = readCell(sheet, i, COL_K)
+    // Valori numerici: ExcelJS restituisce già il float corretto (es. 6.5, non 65)
+    const colG  = isSenzaVoto(rawG)  ? null : cellNum(gCell)
+    const colH  = isSenzaVoto(cellText(row.getCell(COL_H))) ? null : cellNum(row.getCell(COL_H))
+    const colI  = isSenzaVoto(cellText(row.getCell(COL_I))) ? null : cellNum(row.getCell(COL_I))
+    const colJ  = isSenzaVoto(cellText(row.getCell(COL_J))) ? null : cellNum(row.getCell(COL_J))
+    const colK  = isSenzaVoto(cellText(row.getCell(COL_K))) ? null : cellNum(row.getCell(COL_K))
+    const vFanta = isSenzaVoto(rawAG) ? null : cellNum(agCell)
 
     toInsert.push({
       archivio_id: archivio.id,
       stagione: archivio.stagione,
       giornata: archivio.giornata,
       codice,
-      nome: String(row[COL_B] ?? '').trim() || null,
-      squadra: String(row[COL_C] ?? '').trim() || null,
-      ruolo: String(row[COL_D] ?? '').trim() || null,
+      nome:    cellText(row.getCell(COL_B)) || null,
+      squadra: cellText(row.getCell(COL_C)) || null,
+      ruolo:   cellText(row.getCell(COL_D)) || null,
       col_g_label: labelG,
-      col_g: parseItalianNum(rawG),
+      col_g: colG,
       voto_gazzetta_originale: rawG || null,
       col_h_label: labelH,
-      col_h: cellH.num,
+      col_h: colH,
       col_i_label: labelI,
-      col_i: cellI.num,
+      col_i: colI,
       col_j_label: labelJ,
-      col_j: cellJ.num,
+      col_j: colJ,
       col_k_label: labelK,
-      col_k: cellK.num,
-      voto_fanta: parseItalianNum(rawAG),
+      col_k: colK,
+      voto_fanta: vFanta,
       voto_fanta_originale: rawAG || null,
     })
   }
@@ -198,7 +195,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nessun giocatore trovato nel file (solo allenatori o file vuoto)' }, { status: 422 })
   }
 
-  // Deduplica per codice (tiene l'ultima occorrenza in caso di duplicati nel file)
+  // Deduplica per codice
   const deduped = Object.values(
     toInsert.reduce<Record<string, Record<string, unknown>>>((acc, row) => {
       acc[row.codice as string] = row

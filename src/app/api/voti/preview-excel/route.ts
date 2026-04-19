@@ -1,11 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 
 export const dynamic = 'force-dynamic'
 
 const BUCKET = 'voti-excel'
 const PREVIEW_ROWS = 10
+
+function cellToString(cell: ExcelJS.Cell): string {
+  const v = cell.value
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'number') return String(v)
+  if (v instanceof Date) return v.toLocaleDateString('it-IT')
+  if (typeof v === 'object' && 'richText' in v) {
+    return (v as ExcelJS.CellRichTextValue).richText.map((r) => r.text).join('')
+  }
+  if (typeof v === 'object' && 'result' in v) {
+    const res = (v as ExcelJS.CellFormulaValue).result
+    if (res === null || res === undefined) return ''
+    return String(res)
+  }
+  return String(v)
+}
 
 export async function GET(request: NextRequest) {
   // Verifica admin
@@ -38,19 +55,38 @@ export async function GET(request: NextRequest) {
   }
 
   const arrayBuffer = await fileData.arrayBuffer()
-  const workbook = XLSX.read(arrayBuffer, { type: 'array' })
-  const sheet = workbook.Sheets[workbook.SheetNames[0]]
+  const workbook = new ExcelJS.Workbook()
+  try {
+    await workbook.xlsx.load(arrayBuffer)
+  } catch {
+    return NextResponse.json(
+      { error: 'Impossibile leggere il file. Assicurati che sia in formato XLSX.' },
+      { status: 422 }
+    )
+  }
 
-  // Leggi come stringhe formattate (raw: false) per mostrare i valori come appaiono in Excel
-  const rows: string[][] = XLSX.utils.sheet_to_json(sheet, {
-    header: 1,
-    defval: '',
-    raw: false,
-  }) as string[][]
+  const worksheet = workbook.worksheets[0]
+  if (!worksheet) {
+    return NextResponse.json({ error: 'Nessun foglio trovato nel file' }, { status: 422 })
+  }
 
-  const preview = rows.slice(0, PREVIEW_ROWS).map((row) =>
-    row.map((cell) => String(cell ?? ''))
-  )
+  // Calcola il numero massimo di colonne nelle prime PREVIEW_ROWS righe
+  let maxCol = 0
+  for (let ri = 1; ri <= Math.min(PREVIEW_ROWS, worksheet.rowCount); ri++) {
+    const row = worksheet.getRow(ri)
+    if (row.cellCount > maxCol) maxCol = row.cellCount
+  }
 
-  return NextResponse.json({ filename: archivio.filename, rows: preview })
+  // Costruisci la tabella di preview
+  const rows: string[][] = []
+  for (let ri = 1; ri <= Math.min(PREVIEW_ROWS, worksheet.rowCount); ri++) {
+    const row = worksheet.getRow(ri)
+    const rowData: string[] = []
+    for (let ci = 1; ci <= maxCol; ci++) {
+      rowData.push(cellToString(row.getCell(ci)))
+    }
+    rows.push(rowData)
+  }
+
+  return NextResponse.json({ filename: archivio.filename, rows })
 }
