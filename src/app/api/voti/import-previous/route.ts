@@ -152,13 +152,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Upload fallito: ${uploadErr.message}` }, { status: 500 })
   }
 
-  // 5. Salva in DB
-  await supabase.from('voti_archivio').insert({
+  // 5. Salva in DB e restituisce l'id reale
+  const { data: archivioRow } = await supabase.from('voti_archivio').insert({
     stagione,
     giornata,
     filename,
     storage_path: filename,
-  }).then()
+  }).select('id').single()
 
   return NextResponse.json({
     success: true,
@@ -166,5 +166,6 @@ export async function POST(request: NextRequest) {
     stagione,
     giornata,
     bytes: excelBuffer.byteLength,
+    id: archivioRow?.id ?? null,
   })
 }

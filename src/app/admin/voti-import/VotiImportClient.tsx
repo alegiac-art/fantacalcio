@@ -152,9 +152,9 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       setDownloadStatus('done')
       setDownloadMsg(`Archiviato: ${data.filename} (${formatBytes(data.bytes)})`)
 
-      // Aggiunge all'archivio locale ottimisticamente
+      // Aggiunge all'archivio locale con l'id reale restituito dal server
       const newEntry: ArchivioEntry = {
-        id: crypto.randomUUID(),
+        id: data.id ?? crypto.randomUUID(),
         stagione: scrapeResult.stagione!,
         giornata: scrapeResult.excelGiornata!,
         filename: data.filename,
@@ -198,7 +198,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       setPrevStatus('done')
       setPrevMsg(`Archiviato: ${data.filename} (${formatBytes(data.bytes)})`)
       const newEntry: ArchivioEntry = {
-        id: crypto.randomUUID(),
+        id: data.id ?? crypto.randomUUID(),
         stagione: data.stagione,
         giornata: data.giornata,
         filename: data.filename,

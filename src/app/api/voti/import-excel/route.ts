@@ -1,66 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import ExcelJS from 'exceljs'
+import * as XLSX from 'xlsx'
 
 export const dynamic = 'force-dynamic'
 
 const BUCKET = 'voti-excel'
 
-// Colonne (1-based, come vuole ExcelJS: A=1, B=2, ..., G=7, ..., AG=33)
-const COL_A  = 1   // codice giocatore
-const COL_B  = 2   // nome
-const COL_C  = 3   // squadra
-const COL_D  = 4   // ruolo
-const COL_G  = 7
-const COL_H  = 8
-const COL_I  = 9
-const COL_J  = 10
-const COL_K  = 11
-const COL_AG = 33  // "VG" = VotoFanta
+// Colonne 0-based: A=0, B=1, ..., G=6, H=7, ..., K=10, AG=32
+const COL_A  = 0
+const COL_B  = 1
+const COL_C  = 2
+const COL_D  = 3
+const COL_G  = 6
+const COL_H  = 7
+const COL_I  = 8
+const COL_J  = 9
+const COL_K  = 10
+const COL_AG = 32
 
 function isSenzaVoto(s: string): boolean {
   return /^s[.,]?v[.,]?$/i.test(s.replace(/\s/g, ''))
 }
 
-/** Valore grezzo della cella come stringa, senza trasformazioni. */
-function cellText(cell: ExcelJS.Cell): string {
-  const v = cell.value
-  if (v === null || v === undefined) return ''
-  if (typeof v === 'string') return v.trim()
-  if (typeof v === 'number') return String(v)
-  if (v instanceof Date) return v.toLocaleDateString('it-IT')
-  // Rich text
-  if (typeof v === 'object' && 'richText' in v) {
-    return (v as ExcelJS.CellRichTextValue).richText.map((r) => r.text).join('').trim()
-  }
-  // Formula: usa il risultato
-  if (typeof v === 'object' && 'result' in v) {
-    const res = (v as ExcelJS.CellFormulaValue).result
-    if (res === null || res === undefined) return ''
-    if (typeof res === 'number') return String(res)
-    if (typeof res === 'string') return res.trim()
-  }
-  return String(v).trim()
-}
+/**
+ * Legge una cella XLS/XLSX e restituisce:
+ *   text  – stringa grezza (cell.w se disponibile, altrimenti String(cell.v))
+ *   num   – valore numerico (null se s.v. o non parsabile)
+ */
+function readCell(sheet: XLSX.WorkSheet, row: number, col: number): { text: string; num: number | null } {
+  const addr = XLSX.utils.encode_cell({ r: row, c: col })
+  const cell: XLSX.CellObject | undefined = sheet[addr]
 
-/** Valore numerico della cella. Gestisce sia number sia stringhe con virgola italiana. */
-function cellNum(cell: ExcelJS.Cell): number | null {
-  const v = cell.value
-  if (v === null || v === undefined) return null
-  if (typeof v === 'number') return v
-  if (typeof v === 'string') {
-    const n = parseFloat(v.replace(/\s/g, '').replace(',', '.'))
-    return isNaN(n) ? null : n
-  }
-  if (typeof v === 'object' && 'result' in v) {
-    const res = (v as ExcelJS.CellFormulaValue).result
-    if (typeof res === 'number') return res
-    if (typeof res === 'string') {
-      const n = parseFloat((res as string).replace(',', '.'))
-      return isNaN(n) ? null : n
-    }
-  }
-  return null
+  if (!cell || cell.v === undefined || cell.v === null) return { text: '', num: null }
+
+  // Testo grezzo: usa cell.w (stringa formattata dal file) se presente
+  const text = (cell.w !== undefined ? String(cell.w) : String(cell.v)).trim()
+
+  if (isSenzaVoto(text)) return { text, num: null }
+
+  // Valore numerico
+  if (typeof cell.v === 'number') return { text, num: cell.v }
+
+  // Cella testo con numero italiano ("6,5" → 6.5)
+  const n = parseFloat(text.replace(/\s/g, '').replace(',', '.'))
+  return { text, num: isNaN(n) ? null : n }
 }
 
 export async function POST(request: NextRequest) {
@@ -81,8 +64,10 @@ export async function POST(request: NextRequest) {
   const { archivio_id } = body
   if (!archivio_id) return NextResponse.json({ error: 'archivio_id obbligatorio' }, { status: 400 })
 
-  // Recupera record archivio
-  const { data: archivio, error: archivioErr } = await supabase
+  // Usa service client per bypassare eventuali RLS
+  const serviceClient = createServiceClient()
+
+  const { data: archivio, error: archivioErr } = await serviceClient
     .from('voti_archivio')
     .select('id, stagione, giornata, storage_path, filename')
     .eq('id', archivio_id)
@@ -107,7 +92,6 @@ export async function POST(request: NextRequest) {
   }
 
   // Scarica il file da Storage
-  const serviceClient = createServiceClient()
   const { data: fileData, error: downloadErr } = await serviceClient.storage
     .from(BUCKET)
     .download(archivio.storage_path)
@@ -116,78 +100,65 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Download file fallito: ${downloadErr?.message}` }, { status: 500 })
   }
 
-  // Parsa Excel con ExcelJS
+  // Parsa Excel (supporta XLS e XLSX)
   const arrayBuffer = await fileData.arrayBuffer()
-  const workbook = new ExcelJS.Workbook()
-  try {
-    await workbook.xlsx.load(arrayBuffer)
-  } catch {
-    return NextResponse.json(
-      { error: 'Impossibile leggere il file. Assicurati che sia in formato XLSX.' },
-      { status: 422 }
-    )
-  }
+  const workbook = XLSX.read(arrayBuffer, { type: 'array', cellText: true })
+  const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
-  const worksheet = workbook.worksheets[0]
-  if (!worksheet || worksheet.rowCount < 5) {
+  // Leggi tutte le righe (raw:true per i valori, raw:false per i testi formattati)
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true }) as unknown[][]
+
+  if (rows.length < 5) {
     return NextResponse.json({ error: 'Il file non contiene dati sufficienti (attese almeno 5 righe)' }, { status: 422 })
   }
 
-  // Riga 4 = intestazioni
-  const headerRow = worksheet.getRow(4)
+  // Riga 4 (indice 3) = intestazioni
+  const headers = rows[3] as string[]
   const labelG = 'VotoGazzetta'
-  const labelH = cellText(headerRow.getCell(COL_H)) || 'H'
-  const labelI = cellText(headerRow.getCell(COL_I)) || 'I'
-  const labelJ = cellText(headerRow.getCell(COL_J)) || 'J'
-  const labelK = cellText(headerRow.getCell(COL_K)) || 'K'
+  const labelH = String(headers[COL_H] || 'H').trim()
+  const labelI = String(headers[COL_I] || 'I').trim()
+  const labelJ = String(headers[COL_J] || 'J').trim()
+  const labelK = String(headers[COL_K] || 'K').trim()
 
-  // Righe dati dalla 5 in poi
+  // Righe dati dalla 5 in poi (indice 4+)
   const toInsert: Record<string, unknown>[] = []
   let skippedCoaches = 0
 
-  for (let rowIdx = 5; rowIdx <= worksheet.rowCount; rowIdx++) {
-    const row = worksheet.getRow(rowIdx)
-    const codice = cellText(row.getCell(COL_A))
+  for (let i = 4; i < rows.length; i++) {
+    const row = rows[i] as unknown[]
+    const codice = String(row[COL_A] ?? '').trim()
 
     if (!codice) continue
     if (codice.toLowerCase().startsWith('all')) { skippedCoaches++; continue }
 
-    const gCell  = row.getCell(COL_G)
-    const agCell = row.getCell(COL_AG)
-
-    // Testo grezzo per i campi _originale (esattamente come appare nella cella)
-    const rawG  = cellText(gCell)
-    const rawAG = cellText(agCell)
-
-    // Valori numerici: ExcelJS restituisce già il float corretto (es. 6.5, non 65)
-    const colG  = isSenzaVoto(rawG)  ? null : cellNum(gCell)
-    const colH  = isSenzaVoto(cellText(row.getCell(COL_H))) ? null : cellNum(row.getCell(COL_H))
-    const colI  = isSenzaVoto(cellText(row.getCell(COL_I))) ? null : cellNum(row.getCell(COL_I))
-    const colJ  = isSenzaVoto(cellText(row.getCell(COL_J))) ? null : cellNum(row.getCell(COL_J))
-    const colK  = isSenzaVoto(cellText(row.getCell(COL_K))) ? null : cellNum(row.getCell(COL_K))
-    const vFanta = isSenzaVoto(rawAG) ? null : cellNum(agCell)
+    const cellG  = readCell(sheet, i, COL_G)
+    const cellH  = readCell(sheet, i, COL_H)
+    const cellI  = readCell(sheet, i, COL_I)
+    const cellJ  = readCell(sheet, i, COL_J)
+    const cellK  = readCell(sheet, i, COL_K)
+    const cellAG = readCell(sheet, i, COL_AG)
 
     toInsert.push({
       archivio_id: archivio.id,
       stagione: archivio.stagione,
       giornata: archivio.giornata,
       codice,
-      nome:    cellText(row.getCell(COL_B)) || null,
-      squadra: cellText(row.getCell(COL_C)) || null,
-      ruolo:   cellText(row.getCell(COL_D)) || null,
+      nome:    String(row[COL_B] ?? '').trim() || null,
+      squadra: String(row[COL_C] ?? '').trim() || null,
+      ruolo:   String(row[COL_D] ?? '').trim() || null,
       col_g_label: labelG,
-      col_g: colG,
-      voto_gazzetta_originale: rawG || null,
+      col_g:   cellG.num,
+      voto_gazzetta_originale: cellG.text || null,
       col_h_label: labelH,
-      col_h: colH,
+      col_h:   cellH.num,
       col_i_label: labelI,
-      col_i: colI,
+      col_i:   cellI.num,
       col_j_label: labelJ,
-      col_j: colJ,
+      col_j:   cellJ.num,
       col_k_label: labelK,
-      col_k: colK,
-      voto_fanta: vFanta,
-      voto_fanta_originale: rawAG || null,
+      col_k:   cellK.num,
+      voto_fanta: cellAG.num,
+      voto_fanta_originale: cellAG.text || null,
     })
   }
 
@@ -207,6 +178,7 @@ export async function POST(request: NextRequest) {
   const BATCH = 500
   let inserted = 0
   const duplicatesInFile = toInsert.length - deduped.length
+
   for (let i = 0; i < deduped.length; i += BATCH) {
     const batch = deduped.slice(i, i + BATCH)
     const { error: insertErr } = await supabase

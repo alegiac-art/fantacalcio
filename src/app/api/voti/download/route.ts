@@ -78,13 +78,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Upload fallito: ${uploadErr.message}` }, { status: 500 })
     }
 
-    // 6. Salva record in voti_archivio (ignora errore se tabella non esiste ancora)
-    await supabase.from('voti_archivio').upsert(
+    // 6. Salva record in voti_archivio e restituisce l'id reale
+    const { data: archivioRow } = await supabase.from('voti_archivio').upsert(
       { stagione, giornata, filename, storage_path: filename },
       { onConflict: 'stagione,giornata' }
-    ).then()
+    ).select('id').single()
 
-    return NextResponse.json({ success: true, filename, bytes: buffer.byteLength })
+    return NextResponse.json({ success: true, filename, bytes: buffer.byteLength, id: archivioRow?.id ?? null })
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
   }
