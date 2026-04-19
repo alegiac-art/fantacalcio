@@ -54,6 +54,13 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   const [previewData, setPreviewData] = useState<{ filename: string; rows: string[][] } | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
 
+  // ── Leggi valore cella ────────────────────────────────────────────────────
+  const [cellModalEntry, setCellModalEntry] = useState<ArchivioEntry | null>(null)
+  const [cellRef, setCellRef] = useState('')
+  const [cellResult, setCellResult] = useState<{ value: string; raw: string | null; type: string | null } | null>(null)
+  const [cellLoading, setCellLoading] = useState(false)
+  const [cellError, setCellError] = useState('')
+
   // ── Importa giornata precedente ───────────────────────────────────────────
   const [prevGiornata, setPrevGiornata] = useState('')
   const [prevStatus, setPrevStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
@@ -246,6 +253,44 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   const closePreview = () => {
     setPreviewId(null)
     setPreviewData(null)
+  }
+
+  const openCellModal = (entry: ArchivioEntry) => {
+    setCellModalEntry(entry)
+    setCellRef('')
+    setCellResult(null)
+    setCellError('')
+  }
+
+  const closeCellModal = () => {
+    setCellModalEntry(null)
+    setCellResult(null)
+    setCellError('')
+  }
+
+  const handleReadCell = async () => {
+    if (!cellModalEntry || !cellRef.trim()) return
+    setCellLoading(true)
+    setCellResult(null)
+    setCellError('')
+    try {
+      const params = new URLSearchParams({
+        archivio_id: cellModalEntry.id,
+        storage_path: cellModalEntry.storage_path,
+        cell: cellRef.trim(),
+      })
+      const res = await fetch(`/api/voti/read-cell?${params}`)
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        setCellError(data.error ?? 'Errore sconosciuto')
+      } else {
+        setCellResult({ value: data.value, raw: data.raw, type: data.type })
+      }
+    } catch (e) {
+      setCellError((e as Error).message)
+    } finally {
+      setCellLoading(false)
+    }
   }
 
   // ── Importa Excel in DB ───────────────────────────────────────────────────
@@ -461,6 +506,12 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
                       {previewLoading && previewId === entry.id ? '...' : 'Preview contenuto'}
                     </button>
                     <button
+                      onClick={() => openCellModal(entry)}
+                      className="text-xs px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-semibold border border-amber-200"
+                    >
+                      Leggi cella
+                    </button>
+                    <button
                       onClick={() => handleDownloadFile(entry)}
                       disabled={downloadingId === entry.id}
                       className="text-xs px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 font-semibold border border-blue-200 disabled:opacity-40"
@@ -563,6 +614,77 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+    )}
+    {/* ── Modal leggi cella ── */}
+    {cellModalEntry && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+        onClick={closeCellModal}
+      >
+        <div
+          className="bg-white rounded-2xl shadow-xl w-full max-w-sm flex flex-col p-5 gap-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-bold text-gray-800 text-sm">Leggi valore cella</p>
+              <p className="text-xs text-gray-400 mt-0.5 truncate max-w-55">{cellModalEntry.filename}</p>
+            </div>
+            <button
+              onClick={closeCellModal}
+              className="text-gray-400 hover:text-gray-700 text-xl font-bold leading-none"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={cellRef}
+              onChange={(e) => {
+                setCellRef(e.target.value.toUpperCase())
+                setCellResult(null)
+                setCellError('')
+              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleReadCell() }}
+              placeholder="Es. H24"
+              disabled={cellLoading}
+              className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-300 disabled:opacity-50 uppercase"
+            />
+            <button
+              onClick={handleReadCell}
+              disabled={cellLoading || !cellRef.trim()}
+              className="bg-amber-500 text-white font-bold px-4 py-2 rounded-xl text-sm disabled:opacity-40 hover:bg-amber-600 transition-colors"
+            >
+              {cellLoading ? '...' : 'Leggi'}
+            </button>
+          </div>
+
+          {cellError && (
+            <p className="text-xs text-red-600 font-medium">{cellError}</p>
+          )}
+
+          {cellResult && (
+            <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Cella {cellRef}</span>
+                {cellResult.type && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-500 font-mono">
+                    tipo: {cellResult.type}
+                  </span>
+                )}
+              </div>
+              <p className="text-2xl font-black text-gray-800 tracking-tight">{cellResult.value}</p>
+              {cellResult.raw !== null && cellResult.raw !== cellResult.value && (
+                <p className="text-xs text-gray-400">
+                  Valore grezzo: <span className="font-mono text-gray-500">{cellResult.raw}</span>
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     )}
