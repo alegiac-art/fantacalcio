@@ -72,5 +72,8 @@ export async function GET(request: NextRequest) {
 
   const value: string = rows[decoded.r]?.[decoded.c] ?? ''
 
+  // DEBUG
+  console.log(`[read-cell] file: ${archivio.filename} | cella: ${cellRef} | valore: "${value}" | caratteri: ${value.length}`)
+
   return NextResponse.json({ cell: cellRef, length: value.length, filename: archivio.filename })
 }
