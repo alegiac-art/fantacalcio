@@ -10,25 +10,36 @@ const PREVIEW_ROWS = 10
 /**
  * Legge una cella XLS e restituisce la stringa da mostrare nella preview.
  *
- * Priorità:
- *   1. Cella testo (cell.t === 's'): usa cell.v as-is (preserva virgola, "5,54" → "5,54")
- *   2. Cella numerica: usa cell.w (stringa formattata da SheetJS) se disponibile
- *   3. Fallback: String(cell.v)
+ * - Cella testo (cell.t === 's'): usa cell.v as-is (virgola preservata: "s,v," → "s,v,")
+ * - Cella numerica colonna G+ (colIdx ≥ 6): se cell.v è un intero ≥ 100,
+ *   è un voto codificato ×100 → divido per 100 e mostro con virgola (554 → "5,54")
+ * - Altrimenti: cell.w (stringa formattata da SheetJS) o String(cell.v)
  */
-function cellDisplay(cell: XLSX.CellObject | undefined): string {
+function cellDisplay(cell: XLSX.CellObject | undefined, colIdx: number): string {
   if (!cell || cell.v === undefined || cell.v === null) return ''
 
-  // Cella testo: restituisce il valore grezzo (stringa con virgola intatta)
+  // Cella testo: valore grezzo con virgola intatta
   if (cell.t === 's') {
     return String(cell.v)
   }
 
-  // Cella numerica o formula: usa cell.w (stringa già formattata da SheetJS)
-  if (cell.w !== undefined && cell.w !== '') {
-    return cell.w
+  // Cella numerica
+  if (cell.t === 'n' || cell.t === undefined) {
+    const v = typeof cell.v === 'number' ? cell.v : parseFloat(String(cell.v))
+    if (isNaN(v)) return cell.w ?? ''
+
+    // Colonne G in poi (indice ≥ 6): voti codificati ×100 come interi
+    // es. 554 → 5.54 → "5,54"  |  650 → 6.50 → "6,50"
+    if (colIdx >= 6 && Number.isInteger(v) && v >= 100 && v <= 1099) {
+      return (v / 100).toFixed(2).replace('.', ',')
+    }
+
+    // Altrimenti usa cell.w se disponibile
+    if (cell.w !== undefined && cell.w !== '') return cell.w
+    return String(v)
   }
 
-  return String(cell.v)
+  return cell.w ?? String(cell.v)
 }
 
 export async function GET(request: NextRequest) {
@@ -94,7 +105,7 @@ export async function GET(request: NextRequest) {
     const rowData: string[] = []
     for (let c = range.s.c; c <= maxCol; c++) {
       const addr = XLSX.utils.encode_cell({ r, c })
-      rowData.push(cellDisplay(sheet[addr]))
+      rowData.push(cellDisplay(sheet[addr], c))
     }
     rows.push(rowData)
   }
