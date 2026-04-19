@@ -7,6 +7,30 @@ export const dynamic = 'force-dynamic'
 const BUCKET = 'voti-excel'
 const PREVIEW_ROWS = 10
 
+/**
+ * Legge una cella XLS e restituisce la stringa da mostrare nella preview.
+ *
+ * Priorità:
+ *   1. Cella testo (cell.t === 's'): usa cell.v as-is (preserva virgola, "5,54" → "5,54")
+ *   2. Cella numerica: usa cell.w (stringa formattata da SheetJS) se disponibile
+ *   3. Fallback: String(cell.v)
+ */
+function cellDisplay(cell: XLSX.CellObject | undefined): string {
+  if (!cell || cell.v === undefined || cell.v === null) return ''
+
+  // Cella testo: restituisce il valore grezzo (stringa con virgola intatta)
+  if (cell.t === 's') {
+    return String(cell.v)
+  }
+
+  // Cella numerica o formula: usa cell.w (stringa già formattata da SheetJS)
+  if (cell.w !== undefined && cell.w !== '') {
+    return cell.w
+  }
+
+  return String(cell.v)
+}
+
 export async function GET(request: NextRequest) {
   // Verifica admin
   const supabase = await createClient()
@@ -15,13 +39,12 @@ export async function GET(request: NextRequest) {
   const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
   if (!profile?.is_admin) return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
 
-  const archivio_id = request.nextUrl.searchParams.get('archivio_id')
+  const archivio_id = request.nextUrl.searchParams.get('archivio_id') ?? ''
+  const storage_path = request.nextUrl.searchParams.get('storage_path') ?? ''
+
   if (!archivio_id) return NextResponse.json({ error: 'archivio_id obbligatorio' }, { status: 400 })
 
-  // Usa service client per bypassare RLS sul lookup
   const serviceClient = createServiceClient()
-
-  const storage_path = request.nextUrl.searchParams.get('storage_path') ?? ''
 
   let { data: archivio } = await serviceClient
     .from('voti_archivio')
@@ -29,8 +52,7 @@ export async function GET(request: NextRequest) {
     .eq('id', archivio_id)
     .single()
 
-  // Fallback: se l'id è fittizio (UUID generato lato client prima del fix),
-  // cerca per storage_path passato esplicitamente dal client
+  // Fallback: ID fittizio → cerca per storage_path passato dal client
   if (!archivio && storage_path) {
     const { data: fallback } = await serviceClient
       .from('voti_archivio')
@@ -54,21 +76,28 @@ export async function GET(request: NextRequest) {
 
   const arrayBuffer = await fileData.arrayBuffer()
 
-  // Leggi con xlsx (supporta sia XLS che XLSX)
-  // cellText:true forza il calcolo di cell.w per tutte le celle
-  const workbook = XLSX.read(arrayBuffer, { type: 'array', cellText: true, cellDates: true })
+  // Leggi senza cellText:true per non sovrascrivere cell.w originali
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' })
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
-  // sheet_to_json con raw:false restituisce le stringhe formattate (cell.w)
-  const allRows: string[][] = XLSX.utils.sheet_to_json(sheet, {
-    header: 1,
-    defval: '',
-    raw: false,
-  }) as string[][]
+  if (!sheet['!ref']) {
+    return NextResponse.json({ filename: archivio.filename, rows: [] })
+  }
 
-  const rows = allRows.slice(0, PREVIEW_ROWS).map((row) =>
-    row.map((cell) => String(cell ?? ''))
-  )
+  const range = XLSX.utils.decode_range(sheet['!ref'])
+  const maxRow = Math.min(range.e.r, PREVIEW_ROWS - 1)
+  const maxCol = range.e.c
+
+  // Leggi cella per cella (non sheet_to_json) per preservare le virgole nelle stringhe
+  const rows: string[][] = []
+  for (let r = range.s.r; r <= maxRow; r++) {
+    const rowData: string[] = []
+    for (let c = range.s.c; c <= maxCol; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c })
+      rowData.push(cellDisplay(sheet[addr]))
+    }
+    rows.push(rowData)
+  }
 
   return NextResponse.json({ filename: archivio.filename, rows })
 }
