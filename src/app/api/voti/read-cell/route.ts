@@ -64,16 +64,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Il foglio è vuoto' }, { status: 422 })
   }
 
-  const rows = XLSX.utils.sheet_to_json<string[]>(sheet, {
-    header: 1,
-    raw: false,
-    defval: '',
-  }) as string[][]
+  const addr = XLSX.utils.encode_cell(decoded)
+  const cell: XLSX.CellObject | undefined = sheet[addr]
 
-  const value: string = rows[decoded.r]?.[decoded.c] ?? ''
+  const cellV = cell?.v !== undefined ? String(cell.v) : ''
+  const length = cellV.length
 
   // DEBUG
-  console.log(`[read-cell] file: ${archivio.filename} | cella: ${cellRef} | valore: "${value}" | caratteri: ${value.length}`)
+  console.log(`[read-cell] file: ${archivio.filename} | cella: ${cellRef} | cell.v: "${cellV}" | caratteri: ${length}`)
 
-  return NextResponse.json({ cell: cellRef, length: value.length, filename: archivio.filename })
+  return NextResponse.json({ cell: cellRef, length, filename: archivio.filename })
 }
