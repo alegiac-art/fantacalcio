@@ -5,7 +5,8 @@ import * as XLSX from 'xlsx'
 export const dynamic = 'force-dynamic'
 
 const BUCKET = 'voti-excel'
-const PREVIEW_ROWS = 10
+const DEFAULT_PREVIEW_ROWS = 10
+const MAX_PREVIEW_ROWS = 50
 
 /**
  * Legge una cella XLS e restituisce la stringa da mostrare nella preview.
@@ -52,6 +53,10 @@ export async function GET(request: NextRequest) {
 
   const archivio_id = request.nextUrl.searchParams.get('archivio_id') ?? ''
   const storage_path = request.nextUrl.searchParams.get('storage_path') ?? ''
+  const limitParam = parseInt(request.nextUrl.searchParams.get('limit') ?? '', 10)
+  const previewRows = Number.isFinite(limitParam) && limitParam > 0
+    ? Math.min(limitParam, MAX_PREVIEW_ROWS)
+    : DEFAULT_PREVIEW_ROWS
 
   if (!archivio_id) return NextResponse.json({ error: 'archivio_id obbligatorio' }, { status: 400 })
 
@@ -96,7 +101,7 @@ export async function GET(request: NextRequest) {
   }
 
   const range = XLSX.utils.decode_range(sheet['!ref'])
-  const maxRow = Math.min(range.e.r, PREVIEW_ROWS - 1)
+  const maxRow = Math.min(range.e.r, previewRows - 1)
   const maxCol = range.e.c
 
   // Leggi cella per cella (non sheet_to_json) per preservare le virgole nelle stringhe

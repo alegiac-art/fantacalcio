@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
 type ArchivioEntry = {
   id: string
@@ -60,6 +60,13 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   const [cellResult, setCellResult] = useState<number | null>(null)
   const [cellLoading, setCellLoading] = useState(false)
   const [cellError, setCellError] = useState('')
+
+  // ── Importazione manuale ─────────────────────────────────────────────────
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [manualFile, setManualFile] = useState<File | null>(null)
+  const [manualStatus, setManualStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
+  const [manualMsg, setManualMsg] = useState('')
+  const [manualEntry, setManualEntry] = useState<ArchivioEntry | null>(null)
 
   // ── Importa giornata precedente ───────────────────────────────────────────
   const [prevGiornata, setPrevGiornata] = useState('')
@@ -227,14 +234,17 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
 
   // ── Preview contenuto Excel ───────────────────────────────────────────────
 
-  const handlePreview = async (entry: ArchivioEntry) => {
+  const handlePreview = async (entry: ArchivioEntry, limit?: number) => {
     setPreviewId(entry.id)
     setPreviewData(null)
     setPreviewLoading(true)
     try {
-      const res = await fetch(
-        `/api/voti/preview-excel?archivio_id=${entry.id}&storage_path=${encodeURIComponent(entry.storage_path)}`
-      )
+      const params = new URLSearchParams({
+        archivio_id: entry.id,
+        storage_path: entry.storage_path,
+        ...(limit ? { limit: String(limit) } : {}),
+      })
+      const res = await fetch(`/api/voti/preview-excel?${params}`)
       const data = await res.json()
       if (!res.ok || data.error) {
         alert(`Errore preview: ${data.error ?? 'Sconosciuto'}`)
@@ -290,6 +300,39 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       setCellError((e as Error).message)
     } finally {
       setCellLoading(false)
+    }
+  }
+
+  const handleManualUpload = async () => {
+    if (!manualFile) return
+    setManualStatus('uploading')
+    setManualMsg('')
+    setManualEntry(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', manualFile)
+      const res = await fetch('/api/voti/upload-manual', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        setManualStatus('error')
+        setManualMsg(data.error ?? 'Errore sconosciuto')
+        return
+      }
+      setManualStatus('done')
+      setManualMsg(`Caricato: ${data.filename} (${formatBytes(data.bytes)})`)
+      const entry: ArchivioEntry = {
+        id: data.id ?? crypto.randomUUID(),
+        stagione: data.stagione ?? '',
+        giornata: data.giornata ?? 0,
+        filename: data.filename,
+        storage_path: data.storage_path,
+        downloaded_at: new Date().toISOString(),
+      }
+      setManualEntry(entry)
+      setArchivio((prev) => [entry, ...prev.filter((e) => e.filename !== entry.filename)])
+    } catch (e) {
+      setManualStatus('error')
+      setManualMsg((e as Error).message)
     }
   }
 
@@ -464,6 +507,62 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
         )}
         {prevStatus === 'error' && (
           <p className="text-xs text-red-600 mt-2">{prevMsg}</p>
+        )}
+      </div>
+
+      {/* Card: Importazione manuale */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+        <h2 className="font-bold text-gray-700 text-sm mb-1">Importazione manuale</h2>
+        <p className="text-xs text-gray-400 mb-3">
+          Carica un file .xls o .xlsx dal tuo computer. Il file verrà convertito in XLSX e salvato nell&apos;archivio.
+        </p>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xls,.xlsx"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0] ?? null
+            setManualFile(f)
+            setManualStatus('idle')
+            setManualMsg('')
+            setManualEntry(null)
+          }}
+        />
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex-1 border border-dashed border-gray-300 text-gray-500 font-medium py-2 px-3 rounded-xl text-sm hover:border-gray-400 hover:text-gray-700 transition-colors text-left truncate"
+          >
+            {manualFile ? manualFile.name : 'Scegli file .xls / .xlsx…'}
+          </button>
+          <button
+            onClick={handleManualUpload}
+            disabled={!manualFile || manualStatus === 'uploading'}
+            className="bg-indigo-600 text-white font-bold px-4 py-2 rounded-xl text-sm disabled:opacity-40 hover:bg-indigo-700 transition-colors"
+          >
+            {manualStatus === 'uploading' ? 'Caricamento...' : 'Carica'}
+          </button>
+        </div>
+
+        {manualStatus === 'done' && (
+          <div className="mt-3 space-y-2">
+            <p className="text-xs text-green-700 font-semibold">{manualMsg}</p>
+            {manualEntry && (
+              <button
+                onClick={() => handlePreview(manualEntry, 20)}
+                disabled={previewLoading && previewId === manualEntry.id}
+                className="w-full border border-gray-200 text-gray-600 font-semibold py-2 rounded-xl text-sm hover:bg-gray-50 transition-colors disabled:opacity-40"
+              >
+                {previewLoading && previewId === manualEntry.id ? 'Caricamento preview...' : 'Preview prime 20 righe'}
+              </button>
+            )}
+          </div>
+        )}
+        {manualStatus === 'error' && (
+          <p className="text-xs text-red-600 mt-2">{manualMsg}</p>
         )}
       </div>
 
