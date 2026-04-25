@@ -25,6 +25,7 @@ export interface Team {
 
 export interface Player {
   id: string
+  codice: string | null
   name: string
   role: 'P' | 'D' | 'C' | 'A'
   serie_a_team: string

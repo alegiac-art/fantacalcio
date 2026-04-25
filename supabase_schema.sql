@@ -49,12 +49,19 @@ CREATE TABLE IF NOT EXISTS teams (
 -- 4. GIOCATORI DI SERIE A
 CREATE TABLE IF NOT EXISTS players (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  codice TEXT,                        -- codice univoco dal file voti PianetaFanta
   name TEXT NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('P', 'D', 'C', 'A')),
   serie_a_team TEXT NOT NULL DEFAULT '',
   is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+-- Indice univoco parziale: codice deve essere unico ma può essere NULL
+CREATE UNIQUE INDEX IF NOT EXISTS players_codice_unique ON players(codice) WHERE codice IS NOT NULL;
+
+-- MIGRATION (esegui sul DB esistente se la tabella players esiste già):
+-- ALTER TABLE players ADD COLUMN IF NOT EXISTS codice TEXT;
+-- CREATE UNIQUE INDEX IF NOT EXISTS players_codice_unique ON players(codice) WHERE codice IS NOT NULL;
 
 -- 5. ROSE (giocatori nelle squadre fantasy)
 CREATE TABLE IF NOT EXISTS rosters (

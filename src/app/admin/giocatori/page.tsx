@@ -15,11 +15,22 @@ export default async function GiocatoriPage() {
 
   if (!profile?.is_admin) redirect('/')
 
-  const { data: players } = await supabase
-    .from('players')
-    .select('*')
-    .order('role', { ascending: true })
-    .order('name', { ascending: true })
+  const [{ data: players }, { data: archivio }] = await Promise.all([
+    supabase
+      .from('players')
+      .select('*')
+      .order('role', { ascending: true })
+      .order('name', { ascending: true }),
+    supabase
+      .from('voti_archivio')
+      .select('stagione, giornata')
+      .not('stagione', 'is', null)
+      .not('giornata', 'is', null)
+      .order('stagione', { ascending: false })
+      .order('giornata', { ascending: false }),
+  ])
 
-  return <GiocatoriClient initialPlayers={players || []} />
+  const giornate = (archivio ?? []) as { stagione: string; giornata: number }[]
+
+  return <GiocatoriClient initialPlayers={players || []} giornate={giornate} />
 }
