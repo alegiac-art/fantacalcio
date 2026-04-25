@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
-import { parseWorkbook } from '@/lib/excel/parse'
+import { parseWorkbook, extractMeta } from '@/lib/excel/parse'
 
 export const dynamic = 'force-dynamic'
 
@@ -131,6 +131,20 @@ export async function POST(request: NextRequest) {
   const arrayBuffer = await fileData.arrayBuffer()
   const { workbook } = parseWorkbook(arrayBuffer)
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
+
+  // Se stagione o giornata sono null (file caricato manualmente senza nome standard),
+  // prova a estrarle dal contenuto del file
+  if (!archivio.stagione || !archivio.giornata) {
+    const meta = extractMeta(workbook)
+    if (!archivio.stagione && meta.stagione) archivio.stagione = meta.stagione
+    if (!archivio.giornata && meta.giornata) archivio.giornata = meta.giornata
+  }
+
+  if (!archivio.stagione || !archivio.giornata) {
+    return NextResponse.json({
+      error: `Impossibile determinare stagione e giornata dal file. Rinomina il file come "voti_YYYY-YYYY_gNN.xlsx" oppure usa un file di PianetaFanta.`,
+    }, { status: 422 })
+  }
 
   // Leggi tutte le righe (raw:true per i valori, raw:false per i testi formattati)
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true }) as unknown[][]

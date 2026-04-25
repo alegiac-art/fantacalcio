@@ -44,6 +44,44 @@ export function detectFormat(buffer: ArrayBuffer): ExcelFormat {
 }
 
 /**
+ * Scansiona le prime righe del foglio per estrarre stagione (YYYY/YYYY)
+ * e giornata (numero 1–38) dal contenuto del file PianetaFanta.
+ * Le prime righe contengono tipicamente "Stagione 2025/2026" e "Giornata 31".
+ */
+export function extractMeta(workbook: XLSX.WorkBook): { stagione: string | null; giornata: number | null } {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]]
+  if (!sheet['!ref']) return { stagione: null, giornata: null }
+
+  const rows = XLSX.utils.sheet_to_json<string[]>(sheet, {
+    header: 1, raw: false, defval: '',
+  }) as string[][]
+
+  let stagione: string | null = null
+  let giornata: number | null = null
+
+  for (let i = 0; i < Math.min(15, rows.length); i++) {
+    const text = rows[i].join(' ')
+
+    if (!stagione) {
+      const m = text.match(/(\d{4})[\/\-](\d{4})/)
+      if (m) stagione = `${m[1]}/${m[2]}`
+    }
+
+    if (!giornata) {
+      const m = text.match(/giornata[^\d]*(\d{1,2})/i) ?? text.match(/\bG\.?\s*(\d{1,2})\b/)
+      if (m) {
+        const n = parseInt(m[1], 10)
+        if (n >= 1 && n <= 38) giornata = n
+      }
+    }
+
+    if (stagione && giornata) break
+  }
+
+  return { stagione, giornata }
+}
+
+/**
  * Legge un file Excel / HTML / CSV e restituisce un Workbook SheetJS.
  * Usa sempre il parser corretto in base al formato rilevato.
  */

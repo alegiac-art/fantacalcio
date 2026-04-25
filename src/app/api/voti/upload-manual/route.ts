@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
-import { parseWorkbook } from '@/lib/excel/parse'
+import { parseWorkbook, extractMeta } from '@/lib/excel/parse'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,10 +44,25 @@ export async function POST(request: NextRequest) {
   // Rileva formato reale e riscrivi sempre come XLSX
   let xlsxBuffer: Buffer
   let detectedFormat: string
+  let stagione: string | null
+  let giornata: number | null
+
   try {
     const { workbook, format } = parseWorkbook(arrayBuffer)
     detectedFormat = format
     xlsxBuffer = Buffer.from(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }))
+
+    // 1. Prova dal nome file
+    const fromName = parseFilename(originalName)
+    stagione = fromName.stagione
+    giornata = fromName.giornata
+
+    // 2. Se non trovati nel nome, cerca nel contenuto del file
+    if (!stagione || !giornata) {
+      const fromContent = extractMeta(workbook)
+      stagione = stagione ?? fromContent.stagione
+      giornata = giornata ?? fromContent.giornata
+    }
   } catch (e) {
     return NextResponse.json({ error: `Errore parsing file: ${(e as Error).message}` }, { status: 422 })
   }
@@ -55,8 +70,6 @@ export async function POST(request: NextRequest) {
   // Nome file di destinazione: sostituisce estensione con .xlsx
   const baseName = originalName.replace(/\.(xls|xlsx)$/i, '')
   const storageName = `manual_${baseName}.xlsx`
-
-  const { stagione, giornata } = parseFilename(originalName)
 
   const serviceClient = createServiceClient()
   await serviceClient.storage.createBucket(BUCKET, { public: false }).catch(() => {})
@@ -72,18 +85,43 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Upload fallito: ${uploadErr.message}` }, { status: 500 })
   }
 
-  const { data: archivioRow } = await serviceClient
-    .from('voti_archivio')
-    .upsert(
-      { stagione, giornata, filename: storageName, storage_path: storageName },
-      { onConflict: 'stagione,giornata' }
-    )
-    .select('id')
-    .single()
+  // Inserimento in voti_archivio:
+  // - Se stagione e giornata sono noti: upsert (evita duplicati)
+  // - Altrimenti: insert semplice (upsert con NULL su colonne unique non funziona)
+  let archivioId: string | null = null
+  if (stagione && giornata) {
+    const { data: row } = await serviceClient
+      .from('voti_archivio')
+      .upsert(
+        { stagione, giornata, filename: storageName, storage_path: storageName },
+        { onConflict: 'stagione,giornata' }
+      )
+      .select('id')
+      .single()
+    archivioId = row?.id ?? null
+  } else {
+    // Cerca se esiste già per storage_path, altrimenti inserisce
+    const { data: existing } = await serviceClient
+      .from('voti_archivio')
+      .select('id')
+      .eq('storage_path', storageName)
+      .maybeSingle()
+
+    if (existing) {
+      archivioId = existing.id
+    } else {
+      const { data: row } = await serviceClient
+        .from('voti_archivio')
+        .insert({ stagione, giornata, filename: storageName, storage_path: storageName })
+        .select('id')
+        .single()
+      archivioId = row?.id ?? null
+    }
+  }
 
   return NextResponse.json({
     success: true,
-    id: archivioRow?.id ?? null,
+    id: archivioId,
     filename: storageName,
     storage_path: storageName,
     stagione,
