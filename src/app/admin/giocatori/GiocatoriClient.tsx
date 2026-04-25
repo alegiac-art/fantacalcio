@@ -97,9 +97,9 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
     setConfirmDeleteAll(false)
     setDeletingAll(true)
     try {
-      const supabase = createClient()
-      const { error } = await supabase.from('players').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-      if (error) { alert(`Errore: ${error.message}`); return }
+      const res = await fetch('/api/giocatori/delete-all', { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok || data.error) { alert(`Errore: ${data.error ?? 'sconosciuto'}`); return }
       setPlayers([])
     } finally {
       setDeletingAll(false)
