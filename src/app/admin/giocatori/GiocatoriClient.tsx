@@ -42,11 +42,9 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
   const [syncMsg, setSyncMsg] = useState('')
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
 
-  // Conferma eliminazione singola
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-
-  // Elimina tutti
-  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false)
+  // Modal di conferma eliminazione
+  type DeleteTarget = { kind: 'single'; player: Player } | { kind: 'all' }
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deletingAll, setDeletingAll] = useState(false)
 
   const openEdit = (p: Player) => {
@@ -84,7 +82,7 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
   }
 
   const handleDelete = (player: Player) => {
-    setConfirmDeleteId(null)
+    setDeleteTarget(null)
     startTransition(async () => {
       const supabase = createClient()
       const { error } = await supabase.from('players').delete().eq('id', player.id)
@@ -94,7 +92,7 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
   }
 
   const handleDeleteAll = async () => {
-    setConfirmDeleteAll(false)
+    setDeleteTarget(null)
     setDeletingAll(true)
     try {
       const res = await fetch('/api/giocatori/delete-all', { method: 'DELETE' })
@@ -104,6 +102,12 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
     } finally {
       setDeletingAll(false)
     }
+  }
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return
+    if (deleteTarget.kind === 'single') handleDelete(deleteTarget.player)
+    else handleDeleteAll()
   }
 
   const handleSync = async () => {
@@ -164,32 +168,13 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
             <p className="text-gray-400 text-sm">{players.length} giocatori totali</p>
           </div>
           {players.length > 0 && (
-            confirmDeleteAll ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-red-300">Eliminare tutti?</span>
-                <button
-                  onClick={handleDeleteAll}
-                  disabled={deletingAll}
-                  className="text-xs font-bold px-3 py-1.5 bg-red-600 text-white rounded-lg disabled:opacity-50"
-                >
-                  {deletingAll ? '...' : 'Sì, elimina'}
-                </button>
-                <button
-                  onClick={() => setConfirmDeleteAll(false)}
-                  className="text-xs font-semibold px-3 py-1.5 bg-gray-700 text-gray-200 rounded-lg"
-                >
-                  Annulla
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setConfirmDeleteAll(true)}
-                disabled={deletingAll}
-                className="text-xs font-bold px-3 py-1.5 bg-red-700 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
-              >
-                Elimina tutti
-              </button>
-            )
+            <button
+              onClick={() => setDeleteTarget({ kind: 'all' })}
+              disabled={deletingAll}
+              className="text-xs font-bold px-3 py-1.5 bg-red-700 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
+            >
+              {deletingAll ? 'Eliminazione...' : 'Elimina tutti'}
+            </button>
           )}
         </div>
       </div>
@@ -320,31 +305,13 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
                     >
                       Modifica
                     </button>
-                    {confirmDeleteId === player.id ? (
-                      <>
-                        <button
-                          onClick={() => handleDelete(player)}
-                          disabled={isPending}
-                          className="text-xs text-white font-bold px-2.5 py-1.5 bg-red-600 rounded-lg disabled:opacity-50"
-                        >
-                          Conferma
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="text-xs text-gray-600 font-semibold px-2.5 py-1.5 bg-gray-100 rounded-lg"
-                        >
-                          Annulla
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmDeleteId(player.id)}
-                        disabled={isPending}
-                        className="text-xs text-red-600 font-semibold px-2.5 py-1.5 bg-red-50 rounded-lg border border-red-100 disabled:opacity-40"
-                      >
-                        Elimina
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setDeleteTarget({ kind: 'single', player })}
+                      disabled={isPending || deletingAll}
+                      className="text-xs text-red-600 font-semibold px-2.5 py-1.5 bg-red-50 rounded-lg border border-red-100 disabled:opacity-40"
+                    >
+                      Elimina
+                    </button>
                   </div>
                 </div>
               ))}
@@ -352,6 +319,54 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
           )}
         </div>
       </div>
+
+      {/* Modal conferma eliminazione */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <span className="text-red-600 text-lg font-black">!</span>
+              </div>
+              <div>
+                <p className="font-bold text-gray-800 text-base">
+                  {deleteTarget.kind === 'all' ? 'Eliminare tutti i giocatori?' : `Eliminare ${deleteTarget.player.name}?`}
+                </p>
+                <p className="text-sm text-gray-500 mt-1">
+                  {deleteTarget.kind === 'all'
+                    ? `Verranno eliminati tutti i ${players.length} giocatori.`
+                    : 'Il giocatore verrà rimosso dall\'archivio.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+              <p className="text-xs font-semibold text-amber-800 mb-1">Attenzione — effetto a cascata</p>
+              <p className="text-xs text-amber-700">
+                {deleteTarget.kind === 'all'
+                  ? 'Tutti i giocatori verranno rimossi dalle rose delle squadre fantasy e dalle formazioni schierate. Questa operazione non può essere annullata.'
+                  : 'Il giocatore verrà rimosso dalla rosa di ogni squadra fantasy che lo possiede e da tutte le formazioni in cui è schierato. Questa operazione non può essere annullata.'}
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 py-3 border border-gray-300 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={isPending || deletingAll}
+                className="flex-1 py-3 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {isPending || deletingAll ? 'Eliminazione...' : 'Sì, elimina'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal modifica */}
       {editingPlayer && (
