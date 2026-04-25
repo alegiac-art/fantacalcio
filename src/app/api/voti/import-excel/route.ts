@@ -8,10 +8,11 @@ export const dynamic = 'force-dynamic'
 const BUCKET = 'voti-excel'
 
 // Colonne 0-based: A=0, B=1, ..., G=6, H=7, ..., K=10, AG=32
+// Struttura PianetaFanta: A=codice, B=nome, C=ruolo, D=?, E=squadra, F=?, G=votoGazzetta
 const COL_A  = 0
 const COL_B  = 1
-const COL_C  = 2
-const COL_D  = 3
+const COL_C  = 2   // ruolo
+const COL_E  = 4   // squadra
 const COL_G  = 6
 const COL_H  = 7
 const COL_I  = 8
@@ -185,8 +186,8 @@ export async function POST(request: NextRequest) {
       giornata: archivio.giornata,
       codice,
       nome:    String(row[COL_B] ?? '').trim() || null,
-      squadra: String(row[COL_C] ?? '').trim() || null,
-      ruolo:   String(row[COL_D] ?? '').trim() || null,
+      ruolo:   String(row[COL_C] ?? '').trim() || null,
+      squadra: String(row[COL_E] ?? '').trim() || null,
       col_g_label: labelG,
       col_g:   cellG.num,
       voto_gazzetta_originale: cellG.text || null,
