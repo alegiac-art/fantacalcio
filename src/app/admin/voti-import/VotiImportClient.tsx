@@ -86,6 +86,8 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   const [manualStatus, setManualStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
   const [manualMsg, setManualMsg] = useState('')
   const [manualEntry, setManualEntry] = useState<ArchivioEntry | null>(null)
+  const [manualStagione, setManualStagione] = useState('')
+  const [manualGiornata, setManualGiornata] = useState('')
 
   // ── Importa giornata precedente ───────────────────────────────────────────
   const [prevGiornata, setPrevGiornata] = useState('')
@@ -345,17 +347,24 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
     try {
       const fd = new FormData()
       fd.append('file', manualFile)
+      if (manualStagione.trim()) fd.append('stagione', manualStagione.trim())
+      if (manualGiornata.trim()) fd.append('giornata', manualGiornata.trim())
       const res = await fetch('/api/voti/upload-manual', { method: 'POST', body: fd })
       const data = await res.json()
       if (!res.ok || data.error) {
         setManualStatus('error')
         setManualMsg(data.error ?? 'Errore sconosciuto')
         dbgLog(`Errore upload: ${data.error ?? 'sconosciuto'}`, 'error')
+        if (data.dbError) dbgLog(`Errore DB: ${data.dbError}`, 'error')
         return
       }
       setManualStatus('done')
-      setManualMsg(`Caricato: ${data.filename} (${formatBytes(data.bytes)})`)
-      dbgLog(`File convertito e salvato: ${data.filename} (${formatBytes(data.bytes)}) | formato rilevato: ${data.format ?? '?'}`, 'ok')
+      const stagStr = data.stagione ? ` | stagione: ${data.stagione} G${data.giornata}` : ''
+      setManualMsg(`Caricato: ${data.filename} (${formatBytes(data.bytes)})${stagStr}`)
+      dbgLog(`File salvato: ${data.filename} (${formatBytes(data.bytes)}) | formato: ${data.format ?? '?'}${stagStr} | id: ${data.id ?? 'N/A'}`, 'ok')
+      if (!data.id) {
+        dbgLog('ATTENZIONE: record non salvato in DB — aggiungi stagione e giornata manualmente', 'error')
+      }
       const entry: ArchivioEntry = {
         id: data.id ?? crypto.randomUUID(),
         stagione: data.stagione ?? '',
@@ -365,7 +374,10 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
         downloaded_at: new Date().toISOString(),
       }
       setManualEntry(entry)
-      setArchivio((prev) => [entry, ...prev.filter((e) => e.filename !== entry.filename)])
+      if (data.id) {
+        // Solo se abbiamo un ID reale aggiungiamo all'archivio (persisterà dopo il refresh)
+        setArchivio((prev) => [entry, ...prev.filter((e) => e.filename !== entry.filename)])
+      }
     } catch (e) {
       setManualStatus('error')
       setManualMsg((e as Error).message)
@@ -591,6 +603,37 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
             {manualStatus === 'uploading' ? 'Caricamento...' : 'Carica'}
           </button>
         </div>
+
+        {/* Stagione e giornata manuali (obbligatorie se il nome file non le contiene) */}
+        <div className="mt-2 flex gap-2 items-center">
+          <div className="flex-1">
+            <label className="text-xs text-gray-400 mb-1 block">Stagione (es. 2025/2026)</label>
+            <input
+              type="text"
+              value={manualStagione}
+              onChange={(e) => setManualStagione(e.target.value)}
+              placeholder="2025/2026"
+              disabled={manualStatus === 'uploading'}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50"
+            />
+          </div>
+          <div className="w-24">
+            <label className="text-xs text-gray-400 mb-1 block">Giornata</label>
+            <input
+              type="number"
+              min={1}
+              max={38}
+              value={manualGiornata}
+              onChange={(e) => setManualGiornata(e.target.value)}
+              placeholder="31"
+              disabled={manualStatus === 'uploading'}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50"
+            />
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 mt-1">
+          Lascia vuoti se il nome file contiene già stagione e giornata (es. <span className="font-mono">voti_2025-2026_g31.xls</span>).
+        </p>
 
         {manualStatus === 'done' && (
           <div className="mt-3 space-y-2">

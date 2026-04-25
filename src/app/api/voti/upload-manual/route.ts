@@ -30,6 +30,11 @@ export async function POST(request: NextRequest) {
   const file = formData.get('file') as File | null
   if (!file) return NextResponse.json({ error: 'Nessun file ricevuto' }, { status: 400 })
 
+  // Valori opzionali forniti manualmente dall'utente
+  const overrideStagione = (formData.get('stagione') as string | null)?.trim() || null
+  const overrideGiornataRaw = formData.get('giornata') as string | null
+  const overrideGiornata = overrideGiornataRaw ? parseInt(overrideGiornataRaw, 10) || null : null
+
   const filename = file.name
   if (!filename.match(/\.(xls|xlsx)$/i)) {
     return NextResponse.json({ error: 'Il file deve essere .xls o .xlsx' }, { status: 400 })
@@ -57,6 +62,10 @@ export async function POST(request: NextRequest) {
       stagione = stagione ?? fromContent.stagione
       giornata = giornata ?? fromContent.giornata
     }
+
+    // Override manuali dell'utente (priorità massima)
+    if (overrideStagione) stagione = overrideStagione
+    if (overrideGiornata) giornata = overrideGiornata
   } catch (e) {
     return NextResponse.json({ error: `Errore parsing file: ${(e as Error).message}` }, { status: 422 })
   }
@@ -82,7 +91,7 @@ export async function POST(request: NextRequest) {
   let archivioId: string | null = null
 
   if (stagione && giornata) {
-    const { data: row } = await serviceClient
+    const { data: row, error: upsertErr } = await serviceClient
       .from('voti_archivio')
       .upsert(
         { stagione, giornata, filename, storage_path: filename },
@@ -90,6 +99,9 @@ export async function POST(request: NextRequest) {
       )
       .select('id')
       .single()
+    if (upsertErr) {
+      return NextResponse.json({ error: `Errore salvataggio archivio: ${upsertErr.message}` }, { status: 500 })
+    }
     archivioId = row?.id ?? null
   } else {
     // Cerca se esiste già per storage_path, altrimenti inserisce
@@ -102,11 +114,26 @@ export async function POST(request: NextRequest) {
     if (existing) {
       archivioId = existing.id
     } else {
-      const { data: row } = await serviceClient
+      // stagione o giornata null: inserisce solo se la tabella lo permette
+      const { data: row, error: insertErr } = await serviceClient
         .from('voti_archivio')
         .insert({ stagione, giornata, filename, storage_path: filename })
         .select('id')
         .single()
+      if (insertErr) {
+        // Se NOT NULL constraint, restituisce errore chiaro invece di fallire silenziosamente
+        return NextResponse.json({
+          error: `File caricato nello storage ma non salvato in archivio: ${insertErr.message}. Compila i campi Stagione e Giornata prima di caricare.`,
+          dbError: insertErr.message,
+          uploaded: true,
+          filename,
+          storage_path: filename,
+          stagione,
+          giornata,
+          format: detectedFormat,
+          bytes: arrayBuffer.byteLength,
+        }, { status: 422 })
+      }
       archivioId = row?.id ?? null
     }
   }
