@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
+import * as XLSX from 'xlsx'
 
 type LogLevel = 'info' | 'ok' | 'error' | 'debug'
 type LogEntry = { id: number; ts: string; level: LogLevel; msg: string }
@@ -585,6 +586,28 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
             setManualStatus('idle')
             setManualMsg('')
             setManualEntry(null)
+            setManualGiornata('')
+
+            if (f) {
+              const reader = new FileReader()
+              reader.onload = (ev) => {
+                try {
+                  const data = ev.target?.result
+                  if (!data) return
+                  const wb = XLSX.read(data, { type: 'array' })
+                  const sheet = wb.Sheets[wb.SheetNames[0]]
+                  const cell = sheet['A2']
+                  if (!cell) return
+                  const text = String(cell.w ?? cell.v ?? '').trim()
+                  // "Giornata : 31" → 31
+                  const m = text.match(/giornata\s*[:\-]?\s*(\d{1,2})/i)
+                  if (m) setManualGiornata(m[1])
+                } catch {
+                  // parsing fallito silenziosamente, l'utente può compilare a mano
+                }
+              }
+              reader.readAsArrayBuffer(f)
+            }
           }}
         />
 
