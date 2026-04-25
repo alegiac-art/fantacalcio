@@ -291,8 +291,8 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-800 truncate">{player.name}</p>
-                    <p className="text-xs text-gray-400">
-                      {player.serie_a_team}
+                    <p className="text-xs text-gray-400 truncate">
+                      <span>{player.serie_a_team || <span className="italic text-gray-300">squadra n/d</span>}</span>
                       {player.codice && (
                         <span className="ml-2 font-mono text-gray-300">{player.codice}</span>
                       )}
