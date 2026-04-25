@@ -42,8 +42,12 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
   const [syncMsg, setSyncMsg] = useState('')
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
 
-  // Conferma eliminazione
+  // Conferma eliminazione singola
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  // Elimina tutti
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
 
   const openEdit = (p: Player) => {
     setEditingPlayer(p)
@@ -87,6 +91,19 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
       if (error) { alert('Errore nell\'eliminazione.'); return }
       setPlayers((prev) => prev.filter((p) => p.id !== player.id))
     })
+  }
+
+  const handleDeleteAll = async () => {
+    setConfirmDeleteAll(false)
+    setDeletingAll(true)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase.from('players').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (error) { alert(`Errore: ${error.message}`); return }
+      setPlayers([])
+    } finally {
+      setDeletingAll(false)
+    }
   }
 
   const handleSync = async () => {
@@ -141,9 +158,39 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
         <div className="flex items-center gap-2 mb-2">
           <Link href="/admin" className="text-gray-400 text-sm">← Admin</Link>
         </div>
-        <div>
-          <h1 className="text-xl font-bold">Giocatori Serie A</h1>
-          <p className="text-gray-400 text-sm">{players.length} giocatori totali</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold">Giocatori Serie A</h1>
+            <p className="text-gray-400 text-sm">{players.length} giocatori totali</p>
+          </div>
+          {players.length > 0 && (
+            confirmDeleteAll ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-red-300">Eliminare tutti?</span>
+                <button
+                  onClick={handleDeleteAll}
+                  disabled={deletingAll}
+                  className="text-xs font-bold px-3 py-1.5 bg-red-600 text-white rounded-lg disabled:opacity-50"
+                >
+                  {deletingAll ? '...' : 'Sì, elimina'}
+                </button>
+                <button
+                  onClick={() => setConfirmDeleteAll(false)}
+                  className="text-xs font-semibold px-3 py-1.5 bg-gray-700 text-gray-200 rounded-lg"
+                >
+                  Annulla
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDeleteAll(true)}
+                disabled={deletingAll}
+                className="text-xs font-bold px-3 py-1.5 bg-red-700 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
+              >
+                Elimina tutti
+              </button>
+            )
+          )}
         </div>
       </div>
 
