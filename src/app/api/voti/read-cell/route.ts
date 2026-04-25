@@ -30,28 +30,39 @@ export async function GET(request: NextRequest) {
 
   const serviceClient = createServiceClient()
 
-  let { data: archivio } = await serviceClient
-    .from('voti_archivio')
-    .select('storage_path, filename')
-    .eq('id', archivio_id)
-    .single()
+  let resolvedPath = storage_path
+  let resolvedFilename = storage_path.split('/').pop() ?? storage_path
 
-  if (!archivio && storage_path) {
-    const { data: fallback } = await serviceClient
+  if (archivio_id) {
+    const { data: byId } = await serviceClient
       .from('voti_archivio')
       .select('storage_path, filename')
-      .eq('storage_path', storage_path)
+      .eq('id', archivio_id)
       .single()
-    archivio = fallback ?? null
+
+    if (byId) {
+      resolvedPath = byId.storage_path
+      resolvedFilename = byId.filename
+    } else if (storage_path) {
+      const { data: byPath } = await serviceClient
+        .from('voti_archivio')
+        .select('storage_path, filename')
+        .eq('storage_path', storage_path)
+        .single()
+      if (byPath) {
+        resolvedPath = byPath.storage_path
+        resolvedFilename = byPath.filename
+      }
+    }
   }
 
-  if (!archivio) {
-    return NextResponse.json({ error: `File archivio non trovato (id: ${archivio_id})` }, { status: 404 })
+  if (!resolvedPath) {
+    return NextResponse.json({ error: `File non trovato (id: ${archivio_id})` }, { status: 404 })
   }
 
   const { data: fileData, error: downloadErr } = await serviceClient.storage
     .from(BUCKET)
-    .download(archivio.storage_path)
+    .download(resolvedPath)
 
   if (downloadErr || !fileData) {
     return NextResponse.json({ error: `Download fallito: ${downloadErr?.message}` }, { status: 500 })
@@ -74,8 +85,8 @@ export async function GET(request: NextRequest) {
   const length = cellV.length
 
   // DEBUG
-  console.log(`[read-cell] file: ${archivio.filename} | formato: ${format} | cella: ${cellRef} | cell.v: "${cellV}" | caratteri: ${length}`)
+  console.log(`[read-cell] file: ${resolvedFilename} | formato: ${format} | cella: ${cellRef} | cell.v: "${cellV}" | caratteri: ${length}`)
   console.log({ raw: cell?.v, formatted: cell?.w, type: cell?.t })
 
-  return NextResponse.json({ cell: cellRef, raw: cellV, length, format, filename: archivio.filename })
+  return NextResponse.json({ cell: cellRef, raw: cellV, length, format, filename: resolvedFilename })
 }
