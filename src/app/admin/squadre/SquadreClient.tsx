@@ -16,7 +16,7 @@ interface Team {
   profiles: Profile | null
   rosters: RosterEntry[]
 }
-interface League { id: string; name: string }
+interface League { id: string; name: string; settings?: unknown }
 
 const ROLE_COLORS: Record<string, string> = {
   P: 'bg-yellow-100 text-yellow-700',
@@ -49,6 +49,27 @@ export default function SquadreClient({ league, initialTeams, profiles, allPlaye
   const [message, setMessage] = useState('')
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
+
+  const [rosterEditingEnabled, setRosterEditingEnabled] = useState(settings.roster_editing_enabled)
+  const [togglingEdit, setTogglingEdit] = useState(false)
+
+  const handleToggleRosterEditing = async () => {
+    if (!league) return
+    setTogglingEdit(true)
+    try {
+      const supabase = createClient()
+      const newEnabled = !rosterEditingEnabled
+      const newSettings = { ...settings, roster_editing_enabled: newEnabled }
+      const { error } = await supabase
+        .from('leagues')
+        .update({ settings: newSettings })
+        .eq('id', league.id)
+      if (error) { setMessage('Errore aggiornamento impostazioni.'); return }
+      setRosterEditingEnabled(newEnabled)
+    } finally {
+      setTogglingEdit(false)
+    }
+  }
 
   const handleCreateTeam = () => {
     if (!newTeamName.trim()) { setMessage('Inserisci il nome della squadra.'); return }
@@ -159,7 +180,7 @@ export default function SquadreClient({ league, initialTeams, profiles, allPlaye
     <div className="min-h-screen bg-gray-50">
       <div className="bg-gray-800 text-white px-4 pt-12 pb-4">
         <Link href="/admin" className="text-gray-400 text-sm block mb-2">← Admin</Link>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-3">
           <div>
             <h1 className="text-xl font-bold">Squadre e Rose</h1>
             <p className="text-gray-400 text-sm">{teams.length} squadre</p>
@@ -171,6 +192,21 @@ export default function SquadreClient({ league, initialTeams, profiles, allPlaye
             + Squadra
           </button>
         </div>
+        {/* Toggle modifica rosa */}
+        <button
+          onClick={handleToggleRosterEditing}
+          disabled={togglingEdit || !league}
+          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 ${
+            rosterEditingEnabled
+              ? 'bg-green-600 text-white'
+              : 'bg-gray-700 text-gray-200'
+          }`}
+        >
+          <span>{rosterEditingEnabled ? 'Modifica Rosa: ABILITATA' : 'Modifica Rosa: disabilitata'}</span>
+          <span className={`w-10 h-5 rounded-full relative transition-colors ${rosterEditingEnabled ? 'bg-green-400' : 'bg-gray-500'}`}>
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${rosterEditingEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </span>
+        </button>
       </div>
 
       {message && (

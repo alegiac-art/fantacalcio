@@ -20,7 +20,7 @@ export default function ImpostazioniClient({ leagueId, leagueName, initialSettin
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
 
-  const set = (section: keyof LeagueSettings, key: string, value: number) => {
+  const set = (section: Exclude<keyof LeagueSettings, 'roster_editing_enabled'>, key: string, value: number) => {
     setSettings((prev) => ({
       ...prev,
       [section]: { ...prev[section], [key]: value },

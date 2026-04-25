@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import LineupForm from './LineupForm'
+import RosaEditSection from './RosaEditSection'
+import { parseSettings } from '@/lib/settings'
 
 const ROLE_LABELS: Record<string, string> = {
   P: 'Portieri',
@@ -28,7 +30,7 @@ export default async function SquadraPage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="bg-green-700 text-white px-4 pt-12 pb-6">
-          <h1 className="text-xl font-bold">La mia squadra</h1>
+          <h1 className="text-xl font-bold">La Mia Rosa</h1>
         </div>
         <div className="px-4 py-6">
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
@@ -47,6 +49,22 @@ export default async function SquadraPage() {
     .select('*, players(id, name, role, serie_a_team)')
     .eq('team_id', myTeam.id)
     .order('created_at', { ascending: true })
+
+  // Impostazioni lega (per limiti rosa e roster_editing_enabled)
+  const { data: league } = await supabase.from('leagues').select('settings').single()
+  const settings = parseSettings(league?.settings)
+
+  // Giocatori disponibili per la modifica rosa (solo se abilitata)
+  let allPlayers: { id: string; name: string; role: string; serie_a_team: string }[] = []
+  let allRosteredPlayerIds: string[] = []
+  if (settings.roster_editing_enabled) {
+    const [{ data: playersData }, { data: rostersData }] = await Promise.all([
+      supabase.from('players').select('id, name, role, serie_a_team').order('role').order('name'),
+      supabase.from('rosters').select('player_id').neq('team_id', myTeam.id),
+    ])
+    allPlayers = playersData ?? []
+    allRosteredPlayerIds = (rostersData ?? []).map((r) => r.player_id as string)
+  }
 
   // Prossima giornata aperta
   const { data: openMatchday } = await supabase
@@ -131,6 +149,7 @@ export default async function SquadraPage() {
 
   // Raggruppa per ruolo
   type RosterEntry = {
+    id: string
     players: { id: string; name: string; role: string; serie_a_team: string }
     purchase_price: number
   }
@@ -193,10 +212,8 @@ export default async function SquadraPage() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-green-700 text-white px-4 pt-12 pb-6">
-        <h1 className="text-xl font-bold">{myTeam.name}</h1>
-        <p className="text-green-200 text-sm mt-0.5">
-          {(roster || []).length} giocatori in rosa
-        </p>
+        <h1 className="text-xl font-bold">La Mia Rosa</h1>
+        <p className="text-green-200 text-sm mt-0.5">{myTeam.name} · {(roster || []).length} giocatori</p>
       </div>
 
       <div className="px-4 py-4 space-y-4">
@@ -272,44 +289,14 @@ export default async function SquadraPage() {
           />
         )}
 
-        {/* Rosa per ruolo */}
-        {ROLE_ORDER.map((role) => (
-          <div key={role} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="font-bold text-gray-700 text-sm">{ROLE_LABELS[role]}</h2>
-              <span className="text-xs text-gray-400 font-medium">
-                {rosterByRole[role].length}
-              </span>
-            </div>
-            {rosterByRole[role].length === 0 ? (
-              <p className="text-gray-400 text-sm px-4 py-3">Nessun giocatore</p>
-            ) : (
-              <div className="divide-y divide-gray-50">
-                {rosterByRole[role].map((entry) => (
-                  <div key={entry.players.id} className="px-4 py-3 flex items-center gap-3">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                      role === 'P' ? 'bg-yellow-100 text-yellow-700' :
-                      role === 'D' ? 'bg-blue-100 text-blue-700' :
-                      role === 'C' ? 'bg-green-100 text-green-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
-                      {role}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-800 truncate">
-                        {entry.players.name}
-                      </p>
-                      <p className="text-xs text-gray-400">{entry.players.serie_a_team}</p>
-                    </div>
-                    <span className="text-xs text-gray-400 shrink-0">
-                      {entry.purchase_price}M
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+        {/* Rosa — sezione con modifica se abilitata */}
+        <RosaEditSection
+          initialRoster={(roster as RosterEntry[]) ?? []}
+          allPlayers={allPlayers}
+          allRosteredPlayerIds={allRosteredPlayerIds}
+          settings={settings}
+          rosterEditingEnabled={settings.roster_editing_enabled}
+        />
         {/* Storico giornate */}
         {completedMatchdays && completedMatchdays.length > 0 && (
           <div>

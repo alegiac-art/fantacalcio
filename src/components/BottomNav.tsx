@@ -12,7 +12,7 @@ export default function BottomNav({ isAdmin }: BottomNavProps) {
 
   const links = [
     { href: '/', label: 'Home', icon: HomeIcon },
-    { href: '/squadra', label: 'Squadra', icon: ShirtIcon },
+    { href: '/squadra', label: 'La Mia Rosa', icon: ShirtIcon },
     { href: '/classifica', label: 'Classifica', icon: TrophyIcon },
     { href: '/calendario', label: 'Calendario', icon: CalendarIcon },
     { href: '/profilo', label: 'Profilo', icon: UserIcon },

@@ -1,4 +1,5 @@
 export interface LeagueSettings {
+  roster_editing_enabled: boolean
   roster: {
     max_total: number
     max_P: number
@@ -25,6 +26,7 @@ export interface LeagueSettings {
 }
 
 export const DEFAULT_SETTINGS: LeagueSettings = {
+  roster_editing_enabled: false,
   roster: {
     max_total: 25,
     max_P: 3,
@@ -54,6 +56,7 @@ export function parseSettings(raw: unknown): LeagueSettings {
   if (!raw || typeof raw !== 'object') return DEFAULT_SETTINGS
   const s = raw as Partial<LeagueSettings>
   return {
+    roster_editing_enabled: s.roster_editing_enabled ?? false,
     roster: {
       max_total: s.roster?.max_total ?? DEFAULT_SETTINGS.roster.max_total,
       max_P: s.roster?.max_P ?? DEFAULT_SETTINGS.roster.max_P,
