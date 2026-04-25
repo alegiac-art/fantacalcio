@@ -382,7 +382,13 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       const res = await fetch('/api/voti/import-excel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ archivio_id: entry.id }),
+        body: JSON.stringify({
+          archivio_id: entry.id,
+          storage_path: entry.storage_path,
+          filename: entry.filename,
+          stagione: entry.stagione || null,
+          giornata: entry.giornata || null,
+        }),
       })
       const data = await res.json()
       if (!res.ok || data.error) {

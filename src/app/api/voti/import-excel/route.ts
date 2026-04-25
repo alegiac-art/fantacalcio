@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
   const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
   if (!profile?.is_admin) return NextResponse.json({ error: 'Non autorizzato' }, { status: 403 })
 
-  let body: { archivio_id: string }
+  let body: { archivio_id: string; storage_path?: string; filename?: string; stagione?: string | null; giornata?: number | null }
   try {
     body = await request.json()
   } catch {
@@ -68,13 +68,39 @@ export async function POST(request: NextRequest) {
   // Usa service client per bypassare eventuali RLS
   const serviceClient = createServiceClient()
 
-  const { data: archivio, error: archivioErr } = await serviceClient
+  let archivio: { id: string; stagione: string | null; giornata: number | null; storage_path: string; filename: string } | null = null
+
+  const { data: byId } = await serviceClient
     .from('voti_archivio')
     .select('id, stagione, giornata, storage_path, filename')
     .eq('id', archivio_id)
     .single()
 
-  if (archivioErr || !archivio) {
+  if (byId) {
+    archivio = byId
+  } else if (body.storage_path) {
+    // Fallback: cerca per storage_path
+    const { data: byPath } = await serviceClient
+      .from('voti_archivio')
+      .select('id, stagione, giornata, storage_path, filename')
+      .eq('storage_path', body.storage_path)
+      .single()
+
+    if (byPath) {
+      archivio = byPath
+    } else {
+      // File caricato manualmente senza record DB: usa i campi passati dal client
+      archivio = {
+        id: archivio_id,
+        storage_path: body.storage_path,
+        filename: body.filename ?? body.storage_path,
+        stagione: body.stagione ?? null,
+        giornata: body.giornata ?? null,
+      }
+    }
+  }
+
+  if (!archivio) {
     return NextResponse.json({ error: 'File archivio non trovato' }, { status: 404 })
   }
 
