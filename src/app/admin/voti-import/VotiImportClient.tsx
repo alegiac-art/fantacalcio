@@ -559,7 +559,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
         <h2 className="font-bold text-gray-700 text-sm mb-1">Importazione manuale</h2>
         <p className="text-xs text-gray-400 mb-3">
-          Carica un file .xls o .xlsx dal tuo computer. Il file verrà convertito in XLSX e salvato nell&apos;archivio.
+          Carica un file .xls o .xlsx dal tuo computer. Il file verrà salvato nell&apos;archivio così com&apos;è.
         </p>
 
         <input

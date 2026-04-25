@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import * as XLSX from 'xlsx'
 import { parseWorkbook, extractMeta } from '@/lib/excel/parse'
 
 export const dynamic = 'force-dynamic'
@@ -31,8 +30,8 @@ export async function POST(request: NextRequest) {
   const file = formData.get('file') as File | null
   if (!file) return NextResponse.json({ error: 'Nessun file ricevuto' }, { status: 400 })
 
-  const originalName = file.name
-  if (!originalName.match(/\.(xls|xlsx)$/i)) {
+  const filename = file.name
+  if (!filename.match(/\.(xls|xlsx)$/i)) {
     return NextResponse.json({ error: 'Il file deve essere .xls o .xlsx' }, { status: 400 })
   }
 
@@ -41,23 +40,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Il file sembra vuoto o corrotto' }, { status: 400 })
   }
 
-  // Rileva formato reale e riscrivi sempre come XLSX
-  let xlsxBuffer: Buffer
+  // Rileva formato e legge il workbook (solo per estrarre metadati)
   let detectedFormat: string
   let stagione: string | null
   let giornata: number | null
-
   try {
     const { workbook, format } = parseWorkbook(arrayBuffer)
     detectedFormat = format
-    xlsxBuffer = Buffer.from(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }))
 
-    // 1. Prova dal nome file
-    const fromName = parseFilename(originalName)
+    const fromName = parseFilename(filename)
     stagione = fromName.stagione
     giornata = fromName.giornata
 
-    // 2. Se non trovati nel nome, cerca nel contenuto del file
     if (!stagione || !giornata) {
       const fromContent = extractMeta(workbook)
       stagione = stagione ?? fromContent.stagione
@@ -67,33 +61,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Errore parsing file: ${(e as Error).message}` }, { status: 422 })
   }
 
-  // Nome file di destinazione: sostituisce estensione con .xlsx
-  const baseName = originalName.replace(/\.(xls|xlsx)$/i, '')
-  const storageName = `manual_${baseName}.xlsx`
-
   const serviceClient = createServiceClient()
   await serviceClient.storage.createBucket(BUCKET, { public: false }).catch(() => {})
 
+  // Carica il file esattamente com'è, senza modifiche al nome o al formato
+  const fileBuffer = Buffer.from(arrayBuffer)
+  const contentType = filename.match(/\.xlsx$/i)
+    ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    : 'application/vnd.ms-excel'
+
   const { error: uploadErr } = await serviceClient.storage
     .from(BUCKET)
-    .upload(storageName, xlsxBuffer, {
-      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      upsert: true,
-    })
+    .upload(filename, fileBuffer, { contentType, upsert: true })
 
   if (uploadErr) {
     return NextResponse.json({ error: `Upload fallito: ${uploadErr.message}` }, { status: 500 })
   }
 
-  // Inserimento in voti_archivio:
-  // - Se stagione e giornata sono noti: upsert (evita duplicati)
-  // - Altrimenti: insert semplice (upsert con NULL su colonne unique non funziona)
+  // Inserimento in voti_archivio
   let archivioId: string | null = null
+
   if (stagione && giornata) {
     const { data: row } = await serviceClient
       .from('voti_archivio')
       .upsert(
-        { stagione, giornata, filename: storageName, storage_path: storageName },
+        { stagione, giornata, filename, storage_path: filename },
         { onConflict: 'stagione,giornata' }
       )
       .select('id')
@@ -104,7 +96,7 @@ export async function POST(request: NextRequest) {
     const { data: existing } = await serviceClient
       .from('voti_archivio')
       .select('id')
-      .eq('storage_path', storageName)
+      .eq('storage_path', filename)
       .maybeSingle()
 
     if (existing) {
@@ -112,7 +104,7 @@ export async function POST(request: NextRequest) {
     } else {
       const { data: row } = await serviceClient
         .from('voti_archivio')
-        .insert({ stagione, giornata, filename: storageName, storage_path: storageName })
+        .insert({ stagione, giornata, filename, storage_path: filename })
         .select('id')
         .single()
       archivioId = row?.id ?? null
@@ -122,12 +114,11 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     success: true,
     id: archivioId,
-    filename: storageName,
-    storage_path: storageName,
+    filename,
+    storage_path: filename,
     stagione,
     giornata,
-    original_name: originalName,
     format: detectedFormat,
-    bytes: xlsxBuffer.byteLength,
+    bytes: arrayBuffer.byteLength,
   })
 }
