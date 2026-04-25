@@ -36,17 +36,30 @@ export default function RosaEditSection({
   const [editMode, setEditMode] = useState(false)
   const [showAddSheet, setShowAddSheet] = useState(false)
   const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState('')
+  const [teamFilter, setTeamFilter] = useState('')
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
 
   // Giocatori liberi (non in nessuna rosa, escludendo quelli della rosa corrente)
   const myRosteredIds = new Set(roster.map((r) => r.players.id))
   const takenIds = new Set([...allRosteredPlayerIds, ...myRosteredIds])
-  const freeAgents = allPlayers.filter(
-    (p) => !takenIds.has(p.id) &&
-      (p.name.toLowerCase().includes(search.toLowerCase()) ||
-       p.serie_a_team.toLowerCase().includes(search.toLowerCase()))
-  )
+
+  const freeAgentsAll = allPlayers.filter((p) => !takenIds.has(p.id))
+
+  // Squadre distinte (solo tra i giocatori liberi)
+  const distinctTeams = Array.from(
+    new Set(freeAgentsAll.map((p) => p.serie_a_team).filter(Boolean))
+  ).sort()
+
+  const freeAgents = freeAgentsAll.filter((p) => {
+    const matchSearch = !search ||
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.serie_a_team.toLowerCase().includes(search.toLowerCase())
+    const matchRole = !roleFilter || p.role === roleFilter
+    const matchTeam = !teamFilter || p.serie_a_team === teamFilter
+    return matchSearch && matchRole && matchTeam
+  })
 
   const handleAdd = async (player: Player) => {
     setLoading(true)
@@ -112,7 +125,7 @@ export default function RosaEditSection({
         {rosterEditingEnabled && (
           <div className="flex gap-2">
             <button
-              onClick={() => { setShowAddSheet(true); setMsg('') }}
+              onClick={() => { setShowAddSheet(true); setMsg(''); setSearch(''); setRoleFilter(''); setTeamFilter('') }}
               className="text-xs font-bold px-3 py-1.5 bg-green-600 text-white rounded-lg"
             >
               + Aggiungi
@@ -173,37 +186,75 @@ export default function RosaEditSection({
         </div>
       ))}
 
-      {/* Bottom sheet aggiunta giocatore */}
+      {/* Bottom sheet aggiunta giocatore — z-[60] sopra la bottom nav (z-50) */}
       {showAddSheet && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => setShowAddSheet(false)}>
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-end" onClick={() => setShowAddSheet(false)}>
           <div
-            className="bg-white w-full rounded-t-3xl p-5 flex flex-col max-h-[80vh]"
+            className="bg-white w-full rounded-t-3xl flex flex-col"
+            style={{ maxHeight: 'calc(90vh - env(safe-area-inset-bottom))' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="font-bold text-gray-800">Aggiungi giocatore</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {ROLE_ORDER.map((r) => {
-                    const count = rosterByRole[r].length
-                    const max = settings.roster[`max_${r}`]
-                    return `${r} ${count}/${max}`
-                  }).join('  ·  ')}
-                </p>
-              </div>
-              <button onClick={() => setShowAddSheet(false)} className="text-gray-400 text-2xl leading-none">×</button>
+            {/* Handle */}
+            <div className="flex justify-center pt-3 pb-1 shrink-0">
+              <div className="w-10 h-1 bg-gray-200 rounded-full" />
             </div>
 
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cerca per nome o squadra..."
-              className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-green-400"
-              autoFocus
-            />
+            <div className="px-5 pb-3 shrink-0">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="font-bold text-gray-800">Aggiungi giocatore</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {ROLE_ORDER.map((r) => {
+                      const count = rosterByRole[r].length
+                      const max = settings.roster[`max_${r}`]
+                      return `${r} ${count}/${max}`
+                    }).join('  ·  ')}
+                  </p>
+                </div>
+                <button onClick={() => setShowAddSheet(false)} className="text-gray-400 text-2xl leading-none">×</button>
+              </div>
 
-            {msg && <p className="text-xs text-red-600 mb-2">{msg}</p>}
+              {/* Ricerca testo */}
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Cerca per nome..."
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-green-400"
+                autoFocus
+              />
+
+              {/* Filtro ruolo */}
+              <div className="flex gap-1.5 mb-2">
+                {['', ...ROLE_ORDER].map((r) => (
+                  <button
+                    key={r || 'all'}
+                    onClick={() => setRoleFilter(r)}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                      roleFilter === r
+                        ? r ? ROLE_COLORS[r] + ' border border-current' : 'bg-gray-800 text-white'
+                        : 'bg-gray-100 text-gray-500'
+                    }`}
+                  >
+                    {r || 'Tutti'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Filtro squadra */}
+              <select
+                value={teamFilter}
+                onChange={(e) => setTeamFilter(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
+              >
+                <option value="">Tutte le squadre</option>
+                {distinctTeams.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+
+              {msg && <p className="text-xs text-red-600 mt-2">{msg}</p>}
+            </div>
 
             <div className="overflow-y-auto flex-1">
               {freeAgents.length === 0 ? (
