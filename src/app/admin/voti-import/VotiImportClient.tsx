@@ -756,39 +756,34 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       </div>
     )}
     {/* ── Debug console ── */}
-    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-700 bg-gray-950 shadow-2xl" style={{ maxHeight: debugOpen ? '220px' : '36px' }}>
-      {/* Barra titolo */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900 cursor-pointer select-none" onClick={() => setDebugOpen((o) => !o)}>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-green-400 font-mono">▶ DEBUG CONSOLE</span>
+    <div className="fixed bottom-0 left-0 right-0 z-40 bg-gray-950 border-t border-gray-700 shadow-2xl flex flex-col" style={{ height: debugOpen ? '200px' : '32px' }}>
+      {/* Barra titolo — NON è un toggle, ha bottoni espliciti */}
+      <div className="flex items-center justify-between px-3 bg-gray-900 border-b border-gray-700 shrink-0" style={{ height: '32px' }}>
+        <span className="text-xs font-bold text-green-400 font-mono tracking-wider">DEBUG CONSOLE</span>
+        <div className="flex items-center gap-4">
           <span className="text-xs text-gray-500 font-mono">{debugLog.length} eventi</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={(e) => { e.stopPropagation(); setDebugLog([]) }}
-            className="text-xs text-gray-500 hover:text-gray-300 font-mono"
-          >
-            [clear]
+          <button onClick={() => setDebugLog([])} className="text-xs text-gray-500 hover:text-red-400 font-mono transition-colors">clear</button>
+          <button onClick={() => setDebugOpen((o) => !o)} className="text-xs text-gray-400 hover:text-white font-mono transition-colors px-1">
+            {debugOpen ? '▼ chiudi' : '▲ apri'}
           </button>
-          <span className="text-xs text-gray-500 font-mono">{debugOpen ? '▼' : '▲'}</span>
         </div>
       </div>
       {/* Log entries */}
       {debugOpen && (
-        <div className="overflow-y-auto font-mono text-xs px-3 py-2 space-y-0.5" style={{ maxHeight: '184px' }}>
+        <div className="overflow-y-auto flex-1 font-mono text-xs px-3 py-1.5 space-y-0.5">
           {debugLog.length === 0 && (
-            <p className="text-gray-600 italic">Nessun evento ancora. Esegui un&apos;operazione.</p>
+            <p className="text-gray-600 italic py-1">Nessun evento ancora. Esegui un&apos;operazione.</p>
           )}
           {debugLog.map((entry) => (
-            <div key={entry.id} className="flex gap-2 leading-5">
+            <div key={entry.id} className="flex gap-2 leading-5 min-h-5">
               <span className="text-gray-600 shrink-0">{entry.ts}</span>
-              <span className={`shrink-0 w-12 ${
+              <span className={`shrink-0 w-11 ${
                 entry.level === 'ok'    ? 'text-green-400' :
                 entry.level === 'error' ? 'text-red-400' :
                 entry.level === 'debug' ? 'text-cyan-400' :
-                'text-gray-400'
+                'text-gray-500'
               }`}>
-                {entry.level === 'ok' ? '[OK]' : entry.level === 'error' ? '[ERR]' : entry.level === 'debug' ? '[DBG]' : '[INF]'}
+                {entry.level === 'ok' ? '[OK] ' : entry.level === 'error' ? '[ERR]' : entry.level === 'debug' ? '[DBG]' : '[INF]'}
               </span>
               <span className={`break-all ${
                 entry.level === 'ok'    ? 'text-green-300' :

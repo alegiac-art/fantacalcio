@@ -59,33 +59,48 @@ export async function GET(request: NextRequest) {
     ? Math.min(limitParam, MAX_PREVIEW_ROWS)
     : DEFAULT_PREVIEW_ROWS
 
-  if (!archivio_id) return NextResponse.json({ error: 'archivio_id obbligatorio' }, { status: 400 })
+  if (!archivio_id && !storage_path) {
+    return NextResponse.json({ error: 'archivio_id o storage_path obbligatorio' }, { status: 400 })
+  }
 
   const serviceClient = createServiceClient()
 
-  let { data: archivio } = await serviceClient
-    .from('voti_archivio')
-    .select('storage_path, filename')
-    .eq('id', archivio_id)
-    .single()
+  // Cerca il record in DB per ottenere storage_path e filename
+  let resolvedPath = storage_path
+  let resolvedFilename = storage_path.split('/').pop() ?? storage_path
 
-  // Fallback: ID fittizio → cerca per storage_path passato dal client
-  if (!archivio && storage_path) {
-    const { data: fallback } = await serviceClient
+  if (archivio_id) {
+    const { data: byId } = await serviceClient
       .from('voti_archivio')
       .select('storage_path, filename')
-      .eq('storage_path', storage_path)
+      .eq('id', archivio_id)
       .single()
-    archivio = fallback ?? null
+
+    if (byId) {
+      resolvedPath = byId.storage_path
+      resolvedFilename = byId.filename
+    } else if (storage_path) {
+      // Fallback: cerca per storage_path
+      const { data: byPath } = await serviceClient
+        .from('voti_archivio')
+        .select('storage_path, filename')
+        .eq('storage_path', storage_path)
+        .single()
+      if (byPath) {
+        resolvedPath = byPath.storage_path
+        resolvedFilename = byPath.filename
+      }
+      // Se non trovato in DB ma storage_path è fornito, proviamo direttamente dallo Storage
+    }
   }
 
-  if (!archivio) {
-    return NextResponse.json({ error: `File archivio non trovato (id: ${archivio_id})` }, { status: 404 })
+  if (!resolvedPath) {
+    return NextResponse.json({ error: `File non trovato (id: ${archivio_id})` }, { status: 404 })
   }
 
   const { data: fileData, error: downloadErr } = await serviceClient.storage
     .from(BUCKET)
-    .download(archivio.storage_path)
+    .download(resolvedPath)
 
   if (downloadErr || !fileData) {
     return NextResponse.json({ error: `Download fallito: ${downloadErr?.message}` }, { status: 500 })
@@ -98,7 +113,7 @@ export async function GET(request: NextRequest) {
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
   if (!sheet['!ref']) {
-    return NextResponse.json({ filename: archivio.filename, rows: [] })
+    return NextResponse.json({ filename: resolvedFilename, rows: [] })
   }
 
   const range = XLSX.utils.decode_range(sheet['!ref'])
@@ -116,5 +131,5 @@ export async function GET(request: NextRequest) {
     rows.push(rowData)
   }
 
-  return NextResponse.json({ filename: archivio.filename, format, rows })
+  return NextResponse.json({ filename: resolvedFilename, format, rows })
 }
