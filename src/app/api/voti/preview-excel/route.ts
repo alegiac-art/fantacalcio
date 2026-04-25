@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
   const arrayBuffer = await fileData.arrayBuffer()
 
   // Rileva il formato reale (biff/zip/html/csv) e usa il parser corretto
-  const { workbook } = parseWorkbook(arrayBuffer)
+  const { workbook, format } = parseWorkbook(arrayBuffer)
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
   if (!sheet['!ref']) {
@@ -116,5 +116,5 @@ export async function GET(request: NextRequest) {
     rows.push(rowData)
   }
 
-  return NextResponse.json({ filename: archivio.filename, rows })
+  return NextResponse.json({ filename: archivio.filename, format, rows })
 }

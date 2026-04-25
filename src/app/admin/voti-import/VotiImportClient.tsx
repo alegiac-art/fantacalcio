@@ -1,6 +1,9 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+
+type LogLevel = 'info' | 'ok' | 'error' | 'debug'
+type LogEntry = { id: number; ts: string; level: LogLevel; msg: string }
 
 type ArchivioEntry = {
   id: string
@@ -60,6 +63,22 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   const [cellResult, setCellResult] = useState<number | null>(null)
   const [cellLoading, setCellLoading] = useState(false)
   const [cellError, setCellError] = useState('')
+
+  // ── Debug console ────────────────────────────────────────────────────────
+  const [debugLog, setDebugLog] = useState<LogEntry[]>([])
+  const [debugOpen, setDebugOpen] = useState(true)
+  const debugEndRef = useRef<HTMLDivElement>(null)
+  const logIdRef = useRef(0)
+
+  const dbgLog = useCallback((msg: string, level: LogLevel = 'info') => {
+    const now = new Date()
+    const ts = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    setDebugLog((prev) => [...prev, { id: ++logIdRef.current, ts, level, msg }])
+  }, [])
+
+  useEffect(() => {
+    if (debugOpen) debugEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [debugLog, debugOpen])
 
   // ── Importazione manuale ─────────────────────────────────────────────────
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -146,6 +165,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
 
     setDownloadStatus('downloading')
     setDownloadMsg('')
+    dbgLog(`Scaricamento file G${scrapeResult.excelGiornata} stagione ${scrapeResult.stagione} da PianetaFanta…`)
     try {
       const res = await fetch('/api/voti/download', {
         method: 'POST',
@@ -160,11 +180,13 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       if (!res.ok || data.error) {
         setDownloadStatus('error')
         setDownloadMsg(data.error ?? 'Errore sconosciuto')
+        dbgLog(`Errore download: ${data.error ?? 'sconosciuto'}`, 'error')
         return
       }
 
       setDownloadStatus('done')
       setDownloadMsg(`Archiviato: ${data.filename} (${formatBytes(data.bytes)})`)
+      dbgLog(`File scaricato: ${data.filename} (${formatBytes(data.bytes)})`, 'ok')
 
       // Aggiunge all'archivio locale con l'id reale restituito dal server
       const newEntry: ArchivioEntry = {
@@ -197,6 +219,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
     }
     setPrevStatus('loading')
     setPrevMsg('')
+    dbgLog(`Importazione giornata precedente G${g} da PianetaFanta…`)
     try {
       const res = await fetch('/api/voti/import-previous', {
         method: 'POST',
@@ -207,10 +230,12 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       if (!res.ok || data.error) {
         setPrevStatus('error')
         setPrevMsg(data.error ?? 'Errore sconosciuto')
+        dbgLog(`Errore importazione: ${data.error ?? 'sconosciuto'}`, 'error')
         return
       }
       setPrevStatus('done')
       setPrevMsg(`Archiviato: ${data.filename} (${formatBytes(data.bytes)})`)
+      dbgLog(`File archiviato: ${data.filename} (${formatBytes(data.bytes)})`, 'ok')
       const newEntry: ArchivioEntry = {
         id: data.id ?? crypto.randomUUID(),
         stagione: data.stagione,
@@ -238,6 +263,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
     setPreviewId(entry.id)
     setPreviewData(null)
     setPreviewLoading(true)
+    dbgLog(`Preview: ${entry.filename}${limit ? ` (${limit} righe)` : ''}`)
     try {
       const params = new URLSearchParams({
         archivio_id: entry.id,
@@ -247,12 +273,15 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       const res = await fetch(`/api/voti/preview-excel?${params}`)
       const data = await res.json()
       if (!res.ok || data.error) {
+        dbgLog(`Errore preview: ${data.error ?? 'sconosciuto'}`, 'error')
         alert(`Errore preview: ${data.error ?? 'Sconosciuto'}`)
         setPreviewId(null)
       } else {
+        dbgLog(`Preview OK — formato: ${data.format ?? '?'} | ${data.rows.length} righe × ${data.rows[0]?.length ?? 0} colonne`, 'ok')
         setPreviewData(data)
       }
     } catch (e) {
+      dbgLog(`Errore: ${(e as Error).message}`, 'error')
       alert(`Errore: ${(e as Error).message}`)
       setPreviewId(null)
     } finally {
@@ -283,6 +312,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
     setCellLoading(true)
     setCellResult(null)
     setCellError('')
+    dbgLog(`Lettura cella ${cellRef.trim()} da ${cellModalEntry.filename}…`)
     try {
       const params = new URLSearchParams({
         archivio_id: cellModalEntry.id,
@@ -293,11 +323,14 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       const data = await res.json()
       if (!res.ok || data.error) {
         setCellError(data.error ?? 'Errore sconosciuto')
+        dbgLog(`Errore lettura cella: ${data.error ?? 'sconosciuto'}`, 'error')
       } else {
         setCellResult(data.length)
+        dbgLog(`Cella ${data.cell} — formato file: ${data.format ?? '?'} | RAW cell.v: "${data.raw}" | caratteri: ${data.length}`, 'debug')
       }
     } catch (e) {
       setCellError((e as Error).message)
+      dbgLog(`Errore: ${(e as Error).message}`, 'error')
     } finally {
       setCellLoading(false)
     }
@@ -308,6 +341,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
     setManualStatus('uploading')
     setManualMsg('')
     setManualEntry(null)
+    dbgLog(`Upload manuale: ${manualFile.name} (${formatBytes(manualFile.size)})`)
     try {
       const fd = new FormData()
       fd.append('file', manualFile)
@@ -316,10 +350,12 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       if (!res.ok || data.error) {
         setManualStatus('error')
         setManualMsg(data.error ?? 'Errore sconosciuto')
+        dbgLog(`Errore upload: ${data.error ?? 'sconosciuto'}`, 'error')
         return
       }
       setManualStatus('done')
       setManualMsg(`Caricato: ${data.filename} (${formatBytes(data.bytes)})`)
+      dbgLog(`File convertito e salvato: ${data.filename} (${formatBytes(data.bytes)}) | formato rilevato: ${data.format ?? '?'}`, 'ok')
       const entry: ArchivioEntry = {
         id: data.id ?? crypto.randomUUID(),
         stagione: data.stagione ?? '',
@@ -341,6 +377,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
   const handleImportExcel = async (entry: ArchivioEntry) => {
     setImportingId(entry.id)
     setImportMsg((prev) => ({ ...prev, [entry.id]: { text: '', isError: false } }))
+    dbgLog(`Importazione in DB: ${entry.filename}`)
     try {
       const res = await fetch('/api/voti/import-excel', {
         method: 'POST',
@@ -350,6 +387,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
       const data = await res.json()
       if (!res.ok || data.error) {
         setImportMsg((prev) => ({ ...prev, [entry.id]: { text: data.error ?? 'Errore sconosciuto', isError: true } }))
+        dbgLog(`Errore importazione DB: ${data.error ?? 'sconosciuto'}`, 'error')
       } else {
         setImportedIds((prev) => new Set([...prev, entry.id]))
         setImportMsg((prev) => ({
@@ -359,6 +397,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
             isError: false,
           },
         }))
+        dbgLog(`Importazione OK — ${data.inserted} giocatori | ${data.skippedCoaches} allenatori saltati${data.duplicatesInFile > 0 ? ` | ${data.duplicatesInFile} duplicati` : ''}`, 'ok')
       }
     } catch (e) {
       setImportMsg((prev) => ({ ...prev, [entry.id]: { text: (e as Error).message, isError: true } }))
@@ -377,7 +416,7 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
 
   return (
     <>
-    <div className="px-4 py-4 space-y-4">
+    <div className="px-4 py-4 space-y-4 pb-60">
 
       {/* Card: Controlla nuovi voti */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
@@ -716,6 +755,54 @@ export default function VotiImportClient({ archivio: initialArchivio }: Props) {
         </div>
       </div>
     )}
+    {/* ── Debug console ── */}
+    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-700 bg-gray-950 shadow-2xl" style={{ maxHeight: debugOpen ? '220px' : '36px' }}>
+      {/* Barra titolo */}
+      <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900 cursor-pointer select-none" onClick={() => setDebugOpen((o) => !o)}>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-green-400 font-mono">▶ DEBUG CONSOLE</span>
+          <span className="text-xs text-gray-500 font-mono">{debugLog.length} eventi</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={(e) => { e.stopPropagation(); setDebugLog([]) }}
+            className="text-xs text-gray-500 hover:text-gray-300 font-mono"
+          >
+            [clear]
+          </button>
+          <span className="text-xs text-gray-500 font-mono">{debugOpen ? '▼' : '▲'}</span>
+        </div>
+      </div>
+      {/* Log entries */}
+      {debugOpen && (
+        <div className="overflow-y-auto font-mono text-xs px-3 py-2 space-y-0.5" style={{ maxHeight: '184px' }}>
+          {debugLog.length === 0 && (
+            <p className="text-gray-600 italic">Nessun evento ancora. Esegui un&apos;operazione.</p>
+          )}
+          {debugLog.map((entry) => (
+            <div key={entry.id} className="flex gap-2 leading-5">
+              <span className="text-gray-600 shrink-0">{entry.ts}</span>
+              <span className={`shrink-0 w-12 ${
+                entry.level === 'ok'    ? 'text-green-400' :
+                entry.level === 'error' ? 'text-red-400' :
+                entry.level === 'debug' ? 'text-cyan-400' :
+                'text-gray-400'
+              }`}>
+                {entry.level === 'ok' ? '[OK]' : entry.level === 'error' ? '[ERR]' : entry.level === 'debug' ? '[DBG]' : '[INF]'}
+              </span>
+              <span className={`break-all ${
+                entry.level === 'ok'    ? 'text-green-300' :
+                entry.level === 'error' ? 'text-red-300' :
+                entry.level === 'debug' ? 'text-cyan-300' :
+                'text-gray-300'
+              }`}>{entry.msg}</span>
+            </div>
+          ))}
+          <div ref={debugEndRef} />
+        </div>
+      )}
+    </div>
+
     {/* ── Modal leggi cella ── */}
     {cellModalEntry && (
       <div

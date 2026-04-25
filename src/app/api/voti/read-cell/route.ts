@@ -77,5 +77,5 @@ export async function GET(request: NextRequest) {
   console.log(`[read-cell] file: ${archivio.filename} | formato: ${format} | cella: ${cellRef} | cell.v: "${cellV}" | caratteri: ${length}`)
   console.log({ raw: cell?.v, formatted: cell?.w, type: cell?.t })
 
-  return NextResponse.json({ cell: cellRef, length, format, filename: archivio.filename })
+  return NextResponse.json({ cell: cellRef, raw: cellV, length, format, filename: archivio.filename })
 }

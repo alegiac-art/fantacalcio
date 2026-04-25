@@ -43,8 +43,10 @@ export async function POST(request: NextRequest) {
 
   // Rileva formato reale e riscrivi sempre come XLSX
   let xlsxBuffer: Buffer
+  let detectedFormat: string
   try {
-    const { workbook } = parseWorkbook(arrayBuffer)
+    const { workbook, format } = parseWorkbook(arrayBuffer)
+    detectedFormat = format
     xlsxBuffer = Buffer.from(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }))
   } catch (e) {
     return NextResponse.json({ error: `Errore parsing file: ${(e as Error).message}` }, { status: 422 })
@@ -87,6 +89,7 @@ export async function POST(request: NextRequest) {
     stagione,
     giornata,
     original_name: originalName,
+    format: detectedFormat,
     bytes: xlsxBuffer.byteLength,
   })
 }
