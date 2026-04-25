@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
+import { parseWorkbook } from '@/lib/excel/parse'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,10 +41,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Il file sembra vuoto o corrotto' }, { status: 400 })
   }
 
-  // Leggi con SheetJS e riscrivi sempre come XLSX
+  // Rileva formato reale e riscrivi sempre come XLSX
   let xlsxBuffer: Buffer
   try {
-    const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+    const { workbook } = parseWorkbook(arrayBuffer)
     xlsxBuffer = Buffer.from(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }))
   } catch (e) {
     return NextResponse.json({ error: `Errore parsing file: ${(e as Error).message}` }, { status: 422 })

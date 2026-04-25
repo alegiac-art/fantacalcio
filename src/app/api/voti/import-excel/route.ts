@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
+import { parseWorkbook } from '@/lib/excel/parse'
 
 export const dynamic = 'force-dynamic'
 
@@ -100,9 +101,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Download file fallito: ${downloadErr?.message}` }, { status: 500 })
   }
 
-  // Parsa Excel (supporta XLS e XLSX)
+  // Rileva formato reale (biff/zip/html/csv) e usa il parser corretto
   const arrayBuffer = await fileData.arrayBuffer()
-  const workbook = XLSX.read(arrayBuffer, { type: 'array', cellText: true })
+  const { workbook } = parseWorkbook(arrayBuffer)
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
   // Leggi tutte le righe (raw:true per i valori, raw:false per i testi formattati)

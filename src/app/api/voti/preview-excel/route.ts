@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
+import { parseWorkbook } from '@/lib/excel/parse'
 
 export const dynamic = 'force-dynamic'
 
@@ -92,8 +93,8 @@ export async function GET(request: NextRequest) {
 
   const arrayBuffer = await fileData.arrayBuffer()
 
-  // Leggi senza cellText:true per non sovrascrivere cell.w originali
-  const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+  // Rileva il formato reale (biff/zip/html/csv) e usa il parser corretto
+  const { workbook } = parseWorkbook(arrayBuffer)
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
   if (!sheet['!ref']) {

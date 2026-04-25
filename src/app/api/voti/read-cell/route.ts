@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
+import { parseWorkbook } from '@/lib/excel/parse'
 
 export const dynamic = 'force-dynamic'
 
@@ -57,7 +58,9 @@ export async function GET(request: NextRequest) {
   }
 
   const arrayBuffer = await fileData.arrayBuffer()
-  const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+
+  // Rileva il formato reale (biff/zip/html/csv) e usa il parser corretto
+  const { workbook, format } = parseWorkbook(arrayBuffer)
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
 
   if (!sheet['!ref']) {
@@ -71,12 +74,8 @@ export async function GET(request: NextRequest) {
   const length = cellV.length
 
   // DEBUG
-  console.log(`[read-cell] file: ${archivio.filename} | cella: ${cellRef} | cell.v: "${cellV}" | caratteri: ${length}`)
-  console.log({
-    raw: cell?.v,
-    formatted: cell?.w,
-    type: cell?.t,
-  })
+  console.log(`[read-cell] file: ${archivio.filename} | formato: ${format} | cella: ${cellRef} | cell.v: "${cellV}" | caratteri: ${length}`)
+  console.log({ raw: cell?.v, formatted: cell?.w, type: cell?.t })
 
-  return NextResponse.json({ cell: cellRef, length, filename: archivio.filename })
+  return NextResponse.json({ cell: cellRef, length, format, filename: archivio.filename })
 }
