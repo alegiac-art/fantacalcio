@@ -120,10 +120,21 @@ export default function FormazioneClient({
     () => new Set(lineupPlayers.filter((lp) => lp.is_starter).map((lp) => lp.player_id))
   )
 
-  // asterisco: un player_id per ruolo tra i titolari, uno per ruolo tra le riserve
-  const [asterisco, setAsterisco] = useState<Set<string>>(
-    () => new Set(lineupPlayers.filter((lp) => lp.asterisco).map((lp) => lp.player_id))
-  )
+  // asterisco: max 3 ruoli, con simmetria titolari ↔ panchina
+  // asteriscoStarters[role] = player_id del titolare con asterisco per quel ruolo
+  // asteriscoBench[role]    = player_id della riserva  con asterisco per quel ruolo
+  const [asteriscoStarters, setAsteriscoStarters] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {}
+    for (const lp of lineupPlayers)
+      if (lp.asterisco && lp.is_starter) m[lp.players.role] = lp.player_id
+    return m
+  })
+  const [asteriscoBench, setAsteriscoBench] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {}
+    for (const lp of lineupPlayers)
+      if (lp.asterisco && !lp.is_starter) m[lp.players.role] = lp.player_id
+    return m
+  })
 
   const [bench, setBench] = useState<Record<string, string[]>>(() => {
     const result: Record<string, string[]> = { P: [], D: [], C: [], A: [] }
@@ -160,7 +171,8 @@ export default function FormazioneClient({
     newStarters: Set<string>,
     newBench: Record<string, string[]>,
     newFormation: string,
-    newAsterisco: Set<string> = asterisco,
+    newAS: Record<string, string> = asteriscoStarters,
+    newAB: Record<string, string> = asteriscoBench,
   ) => {
     const { error: updErr } = await supabase
       .from('lineups')
@@ -174,17 +186,20 @@ export default function FormazioneClient({
       .eq('lineup_id', lineupId)
     if (delErr) throw new Error(delErr.message)
 
+    const starterAsteriscoSet = new Set(Object.values(newAS))
+    const benchAsteriscoSet   = new Set(Object.values(newAB))
+
     const rows = [
       ...[...newStarters].map((pid, i) => ({
         lineup_id: lineupId, player_id: pid,
         is_starter: true, slot_position: i, bench_order: 0,
-        asterisco: newAsterisco.has(pid),
+        asterisco: starterAsteriscoSet.has(pid),
       })),
       ...ROLE_ORDER.flatMap((role) =>
         (newBench[role] || []).map((pid, i) => ({
           lineup_id: lineupId, player_id: pid,
           is_starter: false, slot_position: 0, bench_order: i,
-          asterisco: newAsterisco.has(pid),
+          asterisco: benchAsteriscoSet.has(pid),
         }))
       ),
     ]
@@ -210,29 +225,31 @@ export default function FormazioneClient({
     if (!player) return
     const role = player.role
 
-    // Determina il gruppo corrente (titolari o panchina)
-    const groupIds: string[] = isStarter
-      ? [...starters]
-      : ROLE_ORDER.flatMap((r) => bench[r] || [])
+    const currentMap = isStarter ? asteriscoStarters : asteriscoBench
+    let newAS = { ...asteriscoStarters }
+    let newAB = { ...asteriscoBench }
 
-    const newAsterisco = new Set(asterisco)
-    if (newAsterisco.has(pid)) {
-      // Rimuovi asterisco
-      newAsterisco.delete(pid)
+    if (currentMap[role] !== undefined) {
+      // Deseleziona: rimuove ENTRAMBI i lati della coppia (coerenza)
+      delete newAS[role]
+      delete newAB[role]
     } else {
-      // Aggiungi: togli prima l'eventuale asterisco dello stesso ruolo nello stesso gruppo
-      for (const id of groupIds) {
-        if (id !== pid && playerMap.get(id)?.role === role && newAsterisco.has(id)) {
-          newAsterisco.delete(id)
-        }
+      // Controlla limite di 3 ruoli distinti (unione dei due gruppi)
+      const activeRoles = new Set([...Object.keys(asteriscoStarters), ...Object.keys(asteriscoBench)])
+      if (!activeRoles.has(role) && activeRoles.size >= 3) {
+        setStatusMsg({ text: 'Massimo 3 ruoli con asterisco.', isError: true })
+        return
       }
-      newAsterisco.add(pid)
+      // Imposta il giocatore per questo ruolo nel gruppo corrente
+      if (isStarter) newAS[role] = pid
+      else newAB[role] = pid
     }
 
     startTransition(async () => {
       try {
-        await saveAll(starters, bench, formation, newAsterisco)
-        setAsterisco(newAsterisco)
+        await saveAll(starters, bench, formation, newAS, newAB)
+        setAsteriscoStarters(newAS)
+        setAsteriscoBench(newAB)
         setStatusMsg(null)
       } catch (e: unknown) {
         setStatusMsg({ text: `Errore: ${(e as Error).message}`, isError: true })
@@ -378,6 +395,47 @@ export default function FormazioneClient({
 
       <div className="px-4 py-4 space-y-4">
 
+        {/* Riepilogo asterischi */}
+        {(() => {
+          const activeRoles = Array.from(
+            new Set([...Object.keys(asteriscoStarters), ...Object.keys(asteriscoBench)])
+          )
+          if (activeRoles.length === 0) return null
+          const ROLE_COLORS_MINI: Record<string, string> = {
+            P: 'bg-yellow-100 text-yellow-700',
+            D: 'bg-blue-100 text-blue-700',
+            C: 'bg-green-100 text-green-700',
+            A: 'bg-red-100 text-red-700',
+          }
+          return (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">
+                Asterischi ({activeRoles.length}/3)
+              </p>
+              <div className="space-y-1.5">
+                {activeRoles.map((role) => {
+                  const sPid = asteriscoStarters[role]
+                  const bPid = asteriscoBench[role]
+                  const complete = sPid !== undefined && bPid !== undefined
+                  return (
+                    <div key={role} className="flex items-center gap-2 text-xs">
+                      <span className={`font-bold px-1.5 py-0.5 rounded shrink-0 ${ROLE_COLORS_MINI[role]}`}>{role}</span>
+                      <span className={complete ? 'text-yellow-500' : 'text-orange-400'}>★</span>
+                      <span className="text-gray-600 truncate">
+                        {sPid ? playerMap.get(sPid)?.name : <span className="italic text-orange-400">titolare mancante</span>}
+                      </span>
+                      <span className="text-gray-300 shrink-0">·</span>
+                      <span className="text-gray-500 truncate">
+                        {bPid ? playerMap.get(bPid)?.name : <span className="italic text-orange-400">riserva mancante</span>}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()}
+
         {/* Modulo */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <div className="flex items-center justify-between mb-2">
@@ -430,18 +488,24 @@ export default function FormazioneClient({
                         <p className="text-sm font-semibold text-gray-800 truncate">{p.name}</p>
                         <p className="text-xs text-gray-400">{p.serie_a_team}</p>
                       </div>
-                      <button
-                        onClick={() => handleToggleAsterisco(pid, true)}
-                        disabled={isPending || isDeadlinePassed}
-                        title="Asterisco"
-                        className={`shrink-0 text-xl leading-none transition-colors ${
-                          asterisco.has(pid)
-                            ? 'text-yellow-400'
-                            : isDeadlinePassed ? 'text-gray-100' : 'text-gray-200 hover:text-yellow-300'
-                        } disabled:cursor-default`}
-                      >
-                        ★
-                      </button>
+                      {(() => {
+                        const isSet = asteriscoStarters[role] === pid
+                        const pairComplete = isSet && asteriscoBench[role] !== undefined
+                        return (
+                          <button
+                            onClick={() => handleToggleAsterisco(pid, true)}
+                            disabled={isPending || isDeadlinePassed}
+                            title={isSet ? (pairComplete ? 'Asterisco completo' : 'Asterisco — seleziona anche in panchina') : 'Imposta asterisco'}
+                            className={`shrink-0 text-xl leading-none transition-colors ${
+                              isSet
+                                ? pairComplete ? 'text-yellow-400' : 'text-orange-400'
+                                : isDeadlinePassed ? 'text-gray-100' : 'text-gray-200 hover:text-yellow-300'
+                            } disabled:cursor-default`}
+                          >
+                            ★
+                          </button>
+                        )
+                      })()}
                       {!isDeadlinePassed && hasBench && (
                         <button
                           onClick={() => { setSwapTarget({ playerId: pid, role }); setStatusMsg(null) }}
@@ -488,18 +552,24 @@ export default function FormazioneClient({
                           <p className="text-sm font-semibold text-blue-700 truncate">{p.name}</p>
                           <p className="text-xs text-gray-400">{p.serie_a_team}</p>
                         </div>
-                        <button
-                          onClick={() => handleToggleAsterisco(pid, false)}
-                          disabled={isPending || isDeadlinePassed}
-                          title="Asterisco"
-                          className={`shrink-0 text-xl leading-none transition-colors ${
-                            asterisco.has(pid)
-                              ? 'text-yellow-400'
-                              : isDeadlinePassed ? 'text-gray-100' : 'text-gray-200 hover:text-yellow-300'
-                          } disabled:cursor-default`}
-                        >
-                          ★
-                        </button>
+                        {(() => {
+                          const isSet = asteriscoBench[role] === pid
+                          const pairComplete = isSet && asteriscoStarters[role] !== undefined
+                          return (
+                            <button
+                              onClick={() => handleToggleAsterisco(pid, false)}
+                              disabled={isPending || isDeadlinePassed}
+                              title={isSet ? (pairComplete ? 'Asterisco completo' : 'Asterisco — seleziona anche tra i titolari') : 'Imposta asterisco'}
+                              className={`shrink-0 text-xl leading-none transition-colors ${
+                                isSet
+                                  ? pairComplete ? 'text-yellow-400' : 'text-orange-400'
+                                  : isDeadlinePassed ? 'text-gray-100' : 'text-gray-200 hover:text-yellow-300'
+                              } disabled:cursor-default`}
+                            >
+                              ★
+                            </button>
+                          )
+                        })()}
                         {!isDeadlinePassed && (
                           <div className="flex flex-col shrink-0">
                             <button
