@@ -29,6 +29,7 @@ export interface Player {
   name: string
   role: 'P' | 'D' | 'C' | 'A'
   serie_a_team: string
+  quotazione: number | null
   is_active: boolean
   created_at: string
 }

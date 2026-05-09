@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import type { Player } from '@/lib/types'
+import * as XLSX from 'xlsx'
 
 const ROLES = ['P', 'D', 'C', 'A'] as const
 const ROLE_LABELS: Record<string, string> = {
@@ -30,7 +31,7 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null)
   const [filter, setFilter] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
-  const [form, setForm] = useState({ name: '', role: 'A' as string, serie_a_team: '' })
+  const [form, setForm] = useState({ name: '', role: 'A' as string, serie_a_team: '', quotazione: '' })
   const [formMsg, setFormMsg] = useState('')
   const [isPending, startTransition] = useTransition()
 
@@ -42,6 +43,14 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
   const [syncMsg, setSyncMsg] = useState('')
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
 
+  // Importazione quotazioni
+  const quotFileRef = useRef<HTMLInputElement>(null)
+  type QuotStatus = 'idle' | 'loading' | 'done' | 'error'
+  const [quotStatus, setQuotStatus] = useState<QuotStatus>('idle')
+  const [quotMsg, setQuotMsg] = useState('')
+  type QuotResult = { inserted: number; updated: number; skipped: number; total: number }
+  const [quotResult, setQuotResult] = useState<QuotResult | null>(null)
+
   // Modal di conferma eliminazione
   type DeleteTarget = { kind: 'single'; player: Player } | { kind: 'all' }
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
@@ -49,7 +58,7 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
 
   const openEdit = (p: Player) => {
     setEditingPlayer(p)
-    setForm({ name: p.name, role: p.role, serie_a_team: p.serie_a_team })
+    setForm({ name: p.name, role: p.role, serie_a_team: p.serie_a_team, quotazione: p.quotazione != null ? String(p.quotazione) : '' })
     setFormMsg('')
   }
 
@@ -66,9 +75,15 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
     if (!editingPlayer) return
     startTransition(async () => {
       const supabase = createClient()
+      const quotVal = form.quotazione.trim() ? parseFloat(form.quotazione.replace(',', '.')) : null
       const { data, error } = await supabase
         .from('players')
-        .update({ name: form.name.trim(), role: form.role, serie_a_team: form.serie_a_team.trim() })
+        .update({
+          name: form.name.trim(),
+          role: form.role,
+          serie_a_team: form.serie_a_team.trim(),
+          quotazione: isNaN(quotVal as number) ? null : quotVal,
+        })
         .eq('id', editingPlayer.id)
         .select()
         .single()
@@ -143,6 +158,77 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
     } catch (e) {
       setSyncStatus('error')
       setSyncMsg((e as Error).message)
+    }
+  }
+
+  const handleQuotImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // reset input so same file can be re-selected
+    if (quotFileRef.current) quotFileRef.current.value = ''
+
+    setQuotStatus('loading')
+    setQuotMsg('')
+    setQuotResult(null)
+
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      // Get all rows as arrays
+      const rawRows = XLSX.utils.sheet_to_json<(string | number)[]>(ws, { header: 1, defval: '' })
+
+      // Find the first row where col A looks like a numeric codice (skip header rows)
+      const dataRows = rawRows.filter((row) => {
+        const cell = String(row[0] ?? '').trim()
+        return /^\d+$/.test(cell)
+      })
+
+      if (dataRows.length === 0) {
+        setQuotStatus('error')
+        setQuotMsg('Nessuna riga di dati trovata nel file. Verifica il formato (A=ID, B=Nome, C=Ruolo, E=Squadra, G=Q.Attuale).')
+        return
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows = dataRows.map((row: any) => {
+        const rawQ = String(row[6] ?? '').replace(',', '.').trim()
+        const quotazione = rawQ ? parseFloat(rawQ) : null
+        return {
+          codice: String(row[0] ?? '').trim(),
+          name: String(row[1] ?? '').trim(),
+          role: String(row[2] ?? '').trim(),
+          serie_a_team: String(row[4] ?? '').trim(),
+          quotazione: isNaN(quotazione as number) ? null : quotazione,
+        }
+      }).filter((r) => r.codice && r.name)
+
+      const res = await fetch('/api/giocatori/import-quotazioni', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        setQuotStatus('error')
+        setQuotMsg(data.error ?? 'Errore sconosciuto')
+        return
+      }
+
+      setQuotStatus('done')
+      setQuotResult(data as QuotResult)
+
+      // Ricarica elenco giocatori
+      const supabase = createClient()
+      const { data: updated } = await supabase
+        .from('players')
+        .select('*')
+        .order('role', { ascending: true })
+        .order('name', { ascending: true })
+      if (updated) setPlayers(updated as Player[])
+    } catch (err) {
+      setQuotStatus('error')
+      setQuotMsg((err as Error).message)
     }
   }
 
@@ -243,6 +329,51 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
           )}
         </div>
 
+        {/* Card: Importa Quotazioni */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
+          <div>
+            <h2 className="font-bold text-gray-700 text-sm">Importa Quotazioni</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Carica il file XLS delle quotazioni (formato: A=ID, B=Nome, C=Ruolo, E=Squadra, G=Q.Attuale).
+              Aggiorna o aggiunge giocatori per codice.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              ref={quotFileRef}
+              type="file"
+              accept=".xls,.xlsx,.csv"
+              className="hidden"
+              onChange={handleQuotImport}
+            />
+            <button
+              onClick={() => quotFileRef.current?.click()}
+              disabled={quotStatus === 'loading'}
+              className="bg-indigo-600 text-white font-bold px-4 py-2 rounded-xl text-sm disabled:opacity-40 hover:bg-indigo-700 transition-colors whitespace-nowrap"
+            >
+              {quotStatus === 'loading' ? 'Importazione...' : 'Scegli file XLS'}
+            </button>
+          </div>
+
+          {quotStatus === 'done' && quotResult && (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 space-y-1">
+              <p className="text-sm font-bold text-indigo-700">Importazione completata</p>
+              <div className="flex gap-4 text-xs text-indigo-600">
+                <span><span className="font-black text-indigo-800 text-base">{quotResult.inserted}</span> nuovi</span>
+                <span><span className="font-bold">{quotResult.updated}</span> aggiornati</span>
+                {quotResult.skipped > 0 && (
+                  <span><span className="font-bold text-amber-600">{quotResult.skipped}</span> saltati</span>
+                )}
+                <span className="text-indigo-400">su {quotResult.total} righe</span>
+              </div>
+            </div>
+          )}
+          {quotStatus === 'error' && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl p-3">{quotMsg}</p>
+          )}
+        </div>
+
         {/* Filtri */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 space-y-2">
           <input
@@ -290,7 +421,14 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
                     {player.role}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-800 truncate">{player.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-gray-800 truncate">{player.name}</p>
+                      {player.quotazione != null && (
+                        <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">
+                          {player.quotazione}M
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-400 truncate">
                       <span>{player.serie_a_team || <span className="italic text-gray-300">squadra n/d</span>}</span>
                       {player.codice && (
@@ -426,6 +564,18 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
                 onChange={(e) => setForm((f) => ({ ...f, serie_a_team: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 placeholder="Es. Juventus"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">Quotazione attuale (M)</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={form.quotazione}
+                onChange={(e) => setForm((f) => ({ ...f, quotazione: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="Es. 30.4"
               />
             </div>
 
