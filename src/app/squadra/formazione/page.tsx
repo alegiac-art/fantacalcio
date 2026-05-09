@@ -8,6 +8,7 @@ type LineupPlayerRaw = {
   player_id: string
   is_starter: boolean
   bench_order: number
+  asterisco: boolean
   players: Player
 }
 type ChangeEntry = { id: string; changed_at: string; change_type: string; description: string }
@@ -86,7 +87,7 @@ export default async function FormazionePage() {
 
   const { data: lineupFull, error: fullErr } = await supabase
     .from('lineups')
-    .select('updated_at, lineup_players(player_id, is_starter, bench_order, players(id, name, role, serie_a_team))')
+    .select('updated_at, lineup_players(player_id, is_starter, bench_order, asterisco, players(id, name, role, serie_a_team))')
     .eq('id', lineupBasic.id)
     .single()
 
@@ -97,11 +98,11 @@ export default async function FormazionePage() {
     // Fallback senza bench_order / updated_at
     const { data: lineupFallback } = await supabase
       .from('lineups')
-      .select('lineup_players(player_id, is_starter, players(id, name, role, serie_a_team))')
+      .select('lineup_players(player_id, is_starter, asterisco, players(id, name, role, serie_a_team))')
       .eq('id', lineupBasic.id)
       .single()
     lineupPlayers = ((lineupFallback?.lineup_players as unknown as LineupPlayerRaw[]) || [])
-      .map((lp, i) => ({ ...lp, bench_order: i }))
+      .map((lp, i) => ({ ...lp, bench_order: i, asterisco: (lp as unknown as { asterisco?: boolean }).asterisco ?? false }))
   }
 
   // Recupera colonne opzionali (formation, created_at, updated_at) in query separata

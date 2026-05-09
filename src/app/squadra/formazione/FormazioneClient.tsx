@@ -17,6 +17,7 @@ interface LineupPlayerRaw {
   player_id: string
   is_starter: boolean
   bench_order: number
+  asterisco: boolean
   players: Player
 }
 
@@ -119,6 +120,11 @@ export default function FormazioneClient({
     () => new Set(lineupPlayers.filter((lp) => lp.is_starter).map((lp) => lp.player_id))
   )
 
+  // asterisco: un player_id per ruolo tra i titolari, uno per ruolo tra le riserve
+  const [asterisco, setAsterisco] = useState<Set<string>>(
+    () => new Set(lineupPlayers.filter((lp) => lp.asterisco).map((lp) => lp.player_id))
+  )
+
   const [bench, setBench] = useState<Record<string, string[]>>(() => {
     const result: Record<string, string[]> = { P: [], D: [], C: [], A: [] }
     for (const lp of lineupPlayers
@@ -154,6 +160,7 @@ export default function FormazioneClient({
     newStarters: Set<string>,
     newBench: Record<string, string[]>,
     newFormation: string,
+    newAsterisco: Set<string> = asterisco,
   ) => {
     const { error: updErr } = await supabase
       .from('lineups')
@@ -171,11 +178,13 @@ export default function FormazioneClient({
       ...[...newStarters].map((pid, i) => ({
         lineup_id: lineupId, player_id: pid,
         is_starter: true, slot_position: i, bench_order: 0,
+        asterisco: newAsterisco.has(pid),
       })),
       ...ROLE_ORDER.flatMap((role) =>
         (newBench[role] || []).map((pid, i) => ({
           lineup_id: lineupId, player_id: pid,
           is_starter: false, slot_position: 0, bench_order: i,
+          asterisco: newAsterisco.has(pid),
         }))
       ),
     ]
@@ -194,6 +203,42 @@ export default function FormazioneClient({
   }
 
   // ── Azioni ───────────────────────────────────────────────────────────────────
+
+  const handleToggleAsterisco = (pid: string, isStarter: boolean) => {
+    if (isPending || isDeadlinePassed) return
+    const player = playerMap.get(pid)
+    if (!player) return
+    const role = player.role
+
+    // Determina il gruppo corrente (titolari o panchina)
+    const groupIds: string[] = isStarter
+      ? [...starters]
+      : ROLE_ORDER.flatMap((r) => bench[r] || [])
+
+    const newAsterisco = new Set(asterisco)
+    if (newAsterisco.has(pid)) {
+      // Rimuovi asterisco
+      newAsterisco.delete(pid)
+    } else {
+      // Aggiungi: togli prima l'eventuale asterisco dello stesso ruolo nello stesso gruppo
+      for (const id of groupIds) {
+        if (id !== pid && playerMap.get(id)?.role === role && newAsterisco.has(id)) {
+          newAsterisco.delete(id)
+        }
+      }
+      newAsterisco.add(pid)
+    }
+
+    startTransition(async () => {
+      try {
+        await saveAll(starters, bench, formation, newAsterisco)
+        setAsterisco(newAsterisco)
+        setStatusMsg(null)
+      } catch (e: unknown) {
+        setStatusMsg({ text: `Errore: ${(e as Error).message}`, isError: true })
+      }
+    })
+  }
 
   const executeSwap = (benchPlayerId: string) => {
     if (!swapTarget || isPending) return
@@ -385,6 +430,18 @@ export default function FormazioneClient({
                         <p className="text-sm font-semibold text-gray-800 truncate">{p.name}</p>
                         <p className="text-xs text-gray-400">{p.serie_a_team}</p>
                       </div>
+                      <button
+                        onClick={() => handleToggleAsterisco(pid, true)}
+                        disabled={isPending || isDeadlinePassed}
+                        title="Asterisco"
+                        className={`shrink-0 text-xl leading-none transition-colors ${
+                          asterisco.has(pid)
+                            ? 'text-yellow-400'
+                            : isDeadlinePassed ? 'text-gray-100' : 'text-gray-200 hover:text-yellow-300'
+                        } disabled:cursor-default`}
+                      >
+                        ★
+                      </button>
                       {!isDeadlinePassed && hasBench && (
                         <button
                           onClick={() => { setSwapTarget({ playerId: pid, role }); setStatusMsg(null) }}
@@ -431,6 +488,18 @@ export default function FormazioneClient({
                           <p className="text-sm font-semibold text-blue-700 truncate">{p.name}</p>
                           <p className="text-xs text-gray-400">{p.serie_a_team}</p>
                         </div>
+                        <button
+                          onClick={() => handleToggleAsterisco(pid, false)}
+                          disabled={isPending || isDeadlinePassed}
+                          title="Asterisco"
+                          className={`shrink-0 text-xl leading-none transition-colors ${
+                            asterisco.has(pid)
+                              ? 'text-yellow-400'
+                              : isDeadlinePassed ? 'text-gray-100' : 'text-gray-200 hover:text-yellow-300'
+                          } disabled:cursor-default`}
+                        >
+                          ★
+                        </button>
                         {!isDeadlinePassed && (
                           <div className="flex flex-col shrink-0">
                             <button
