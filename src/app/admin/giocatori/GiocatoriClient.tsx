@@ -48,7 +48,7 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
   type QuotStatus = 'idle' | 'loading' | 'done' | 'error'
   const [quotStatus, setQuotStatus] = useState<QuotStatus>('idle')
   const [quotMsg, setQuotMsg] = useState('')
-  type QuotResult = { inserted: number; updated: number; skipped: number; total: number }
+  type QuotResult = { inserted: number; updated: number; skipped: number; total: number; firstError?: string; badRoles?: string[]; sampleRow?: unknown }
   const [quotResult, setQuotResult] = useState<QuotResult | null>(null)
 
   // Modal di conferma eliminazione
@@ -357,7 +357,7 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
           </div>
 
           {quotStatus === 'done' && quotResult && (
-            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 space-y-1">
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 space-y-2">
               <p className="text-sm font-bold text-indigo-700">Importazione completata</p>
               <div className="flex gap-4 text-xs text-indigo-600">
                 <span><span className="font-black text-indigo-800 text-base">{quotResult.inserted}</span> nuovi</span>
@@ -367,6 +367,21 @@ export default function GiocatoriClient({ initialPlayers, giornate }: Props) {
                 )}
                 <span className="text-indigo-400">su {quotResult.total} righe</span>
               </div>
+              {quotResult.firstError && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2 font-mono break-all">
+                  Errore DB: {quotResult.firstError}
+                </p>
+              )}
+              {quotResult.badRoles && quotResult.badRoles.length > 0 && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2">
+                  Ruoli non riconosciuti: {quotResult.badRoles.join(', ')}
+                </p>
+              )}
+              {quotResult.sampleRow !== undefined && (
+                <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg p-2 font-mono break-all">
+                  Prima riga: {JSON.stringify(quotResult.sampleRow)}
+                </p>
+              )}
             </div>
           )}
           {quotStatus === 'error' && (

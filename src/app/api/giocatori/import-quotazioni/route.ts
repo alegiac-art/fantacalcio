@@ -44,11 +44,21 @@ export async function POST(request: NextRequest) {
   let inserted = 0
   let updated = 0
   let skipped = 0
+  let firstError: string | null = null
+  const badRoles: string[] = []
+
+  // Log first row for debugging
+  const sampleRow = rows[0]
+  console.log('[import-quotazioni] first row sample:', JSON.stringify(sampleRow))
 
   for (const row of rows) {
     if (!row.codice || !row.name) { skipped++; continue }
     const role = normalizeRole(row.role)
-    if (!role) { skipped++; continue }
+    if (!role) {
+      if (badRoles.length < 5) badRoles.push(row.role)
+      skipped++
+      continue
+    }
 
     // Check if player with this codice already exists
     const { data: existing } = await sc
@@ -68,7 +78,7 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', existing.id)
       if (!error) updated++
-      else skipped++
+      else { if (!firstError) firstError = `UPDATE error: ${error.message}`; skipped++ }
     } else {
       const { error } = await sc
         .from('players')
@@ -81,9 +91,18 @@ export async function POST(request: NextRequest) {
           is_active: true,
         })
       if (!error) inserted++
-      else skipped++
+      else { if (!firstError) firstError = `INSERT error: ${error.message}`; skipped++ }
     }
   }
 
-  return NextResponse.json({ success: true, inserted, updated, skipped, total: rows.length })
+  return NextResponse.json({
+    success: true,
+    inserted,
+    updated,
+    skipped,
+    total: rows.length,
+    firstError,
+    badRoles: badRoles.length > 0 ? badRoles : undefined,
+    sampleRow,
+  })
 }
