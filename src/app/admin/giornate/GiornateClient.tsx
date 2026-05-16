@@ -4,17 +4,40 @@ import { useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import type { LeagueSettings } from '@/lib/settings'
+import ElaboraMatchday from './ElaboraMatchday'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Matchday {
-  id: string
-  number: number
-  deadline: string | null
+  id: string; number: number; deadline: string | null
   status: 'upcoming' | 'open' | 'closed' | 'completed'
 }
-
 interface Team { id: string; name: string }
 interface Fixture { id: string; matchday_id: string; home_team_id: string; away_team_id: string }
 interface League { id: string; name: string }
+interface VotiArchivio { id: string; stagione: string; giornata: number; filename: string | null }
+
+interface LineupPlayer {
+  player_id: string; name: string; role: string; codice: string | null
+  is_starter: boolean; bench_order: number; asterisco: boolean
+}
+interface LineupData { formation: string; players: LineupPlayer[] }
+interface ResultRow {
+  matchday_id: string; team_id: string
+  total_score: number; goals_scored: number; goals_conceded: number; points: number
+}
+
+interface Props {
+  league: League | null
+  initialMatchdays: Matchday[]
+  teams: Team[]
+  initialFixtures: Fixture[]
+  votiArchivio: VotiArchivio[]
+  settings: LeagueSettings
+  lineupsByMatchdayTeam: Record<string, Record<string, LineupData>>
+  resultsByMatchday: Record<string, ResultRow[]>
+}
 
 const STATUS_LABELS: Record<string, string> = {
   upcoming: 'In arrivo', open: 'Aperta', closed: 'Chiusa', completed: 'Completata',
@@ -25,18 +48,73 @@ const STATUS_COLORS: Record<string, string> = {
   closed: 'bg-orange-100 text-orange-700',
   completed: 'bg-blue-100 text-blue-700',
 }
+const ROLE_COLORS: Record<string, string> = {
+  P: 'bg-yellow-100 text-yellow-700',
+  D: 'bg-blue-100 text-blue-700',
+  C: 'bg-green-100 text-green-700',
+  A: 'bg-red-100 text-red-700',
+}
+const ROLE_ORDER = ['P', 'D', 'C', 'A']
 
-interface Props {
-  league: League | null
-  initialMatchdays: Matchday[]
-  teams: Team[]
-  initialFixtures: Fixture[]
+// ── Subcomponent: formazione compatta per admin ───────────────────────────────
+
+function LineupCompact({ lineup, teamName }: { lineup: LineupData | null; teamName: string }) {
+  if (!lineup) return (
+    <div className="flex-1">
+      <p className="text-xs font-bold text-gray-600 mb-0.5">{teamName}</p>
+      <p className="text-xs text-gray-400 italic">Formazione non inviata</p>
+    </div>
+  )
+
+  const starters = lineup.players
+    .filter((p) => p.is_starter)
+    .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role))
+  const bench = lineup.players
+    .filter((p) => !p.is_starter)
+    .sort((a, b) => a.bench_order - b.bench_order)
+
+  return (
+    <div className="flex-1 min-w-0">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <p className="text-xs font-bold text-gray-700 truncate">{teamName}</p>
+        <span className="text-xs text-green-700 bg-green-50 px-1.5 rounded shrink-0">{lineup.formation}</span>
+      </div>
+      <div className="space-y-0.5">
+        {starters.map((p) => (
+          <div key={p.player_id} className="flex items-center gap-1">
+            <span className={`text-xs font-bold px-1 py-px rounded shrink-0 ${ROLE_COLORS[p.role]}`}>{p.role}</span>
+            {p.asterisco && <span className="text-yellow-400 text-xs">★</span>}
+            <span className="text-xs text-gray-700 truncate">{p.name}</span>
+          </div>
+        ))}
+      </div>
+      {bench.length > 0 && (
+        <div className="mt-1 pt-1 border-t border-gray-100">
+          <p className="text-xs text-gray-400 font-bold mb-0.5">Panchina</p>
+          {bench.map((p, i) => (
+            <div key={p.player_id} className="flex items-center gap-1">
+              <span className="text-xs text-blue-400 font-black w-4">{i + 1}°</span>
+              <span className={`text-xs font-bold px-1 py-px rounded shrink-0 ${ROLE_COLORS[p.role]}`}>{p.role}</span>
+              {p.asterisco && <span className="text-yellow-400 text-xs">★</span>}
+              <span className="text-xs text-gray-500 truncate">{p.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
-export default function GiornateClient({ league, initialMatchdays, teams, initialFixtures }: Props) {
+// ── Main component ────────────────────────────────────────────────────────────
+
+export default function GiornateClient({
+  league, initialMatchdays, teams, initialFixtures,
+  votiArchivio, settings, lineupsByMatchdayTeam, resultsByMatchday,
+}: Props) {
   const [matchdays, setMatchdays] = useState<Matchday[]>(initialMatchdays)
   const [fixtures, setFixtures] = useState<Fixture[]>(initialFixtures)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<Record<string, 'formazioni' | 'elabora'>>({})
   const [newNumber, setNewNumber] = useState(
     initialMatchdays.length > 0 ? Math.max(...initialMatchdays.map((m) => m.number)) + 1 : 1
   )
@@ -47,6 +125,12 @@ export default function GiornateClient({ league, initialMatchdays, teams, initia
   const [message, setMessage] = useState('')
   const [isPending, startTransition] = useTransition()
   const router = useRouter()
+
+  const teamById = Object.fromEntries(teams.map((t) => [t.id, t]))
+
+  const getTab = (matchdayId: string) => activeTab[matchdayId] ?? 'formazioni'
+  const setTab = (matchdayId: string, tab: 'formazioni' | 'elabora') =>
+    setActiveTab((prev) => ({ ...prev, [matchdayId]: tab }))
 
   const handleCreate = () => {
     if (!league) { setMessage('Nessuna lega trovata. Creala prima.'); return }
@@ -96,7 +180,6 @@ export default function GiornateClient({ league, initialMatchdays, teams, initia
     if (valid.length === 0) { setMessage('Inserisci almeno una sfida valida.'); return }
     startTransition(async () => {
       const supabase = createClient()
-      // Elimina le sfide esistenti per questa giornata
       await supabase.from('fixtures').delete().eq('matchday_id', matchdayId)
       const { data } = await supabase
         .from('fixtures')
@@ -153,38 +236,23 @@ export default function GiornateClient({ league, initialMatchdays, teams, initia
             <h2 className="font-bold text-lg">Nuova giornata</h2>
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Numero giornata</label>
-              <input
-                type="number" min="1"
-                value={newNumber}
+              <input type="number" min="1" value={newNumber}
                 onChange={(e) => setNewNumber(parseInt(e.target.value) || 1)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">
-                Scadenza formazione (data e ora)
-              </label>
-              <input
-                type="datetime-local"
-                value={newDeadline}
+              <label className="text-sm font-medium text-gray-700 block mb-1">Scadenza formazione</label>
+              <input type="datetime-local" value={newDeadline}
                 onChange={(e) => setNewDeadline(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               />
             </div>
             <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setShowNew(false)}
-                className="flex-1 py-3 border border-gray-300 rounded-xl text-sm font-semibold text-gray-600"
-              >
-                Annulla
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={isPending}
-                className="flex-1 py-3 bg-green-600 text-white rounded-xl text-sm font-bold disabled:opacity-50"
-              >
-                Crea
-              </button>
+              <button onClick={() => setShowNew(false)}
+                className="flex-1 py-3 border border-gray-300 rounded-xl text-sm font-semibold text-gray-600">Annulla</button>
+              <button onClick={handleCreate} disabled={isPending}
+                className="flex-1 py-3 bg-green-600 text-white rounded-xl text-sm font-bold disabled:opacity-50">Crea</button>
             </div>
           </div>
         </div>
@@ -200,49 +268,32 @@ export default function GiornateClient({ league, initialMatchdays, teams, initia
             </div>
             {tempFixtures.map((f, i) => (
               <div key={i} className="flex gap-2 items-center">
-                <select
-                  value={f.home}
+                <select value={f.home}
                   onChange={(e) => setTempFixtures((prev) => prev.map((x, j) => j === i ? { ...x, home: e.target.value } : x))}
-                  className="flex-1 border border-gray-300 rounded-lg px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-green-500"
-                >
+                  className="flex-1 border border-gray-300 rounded-lg px-2 py-2 text-xs focus:outline-none">
                   <option value="">Casa</option>
                   {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
                 <span className="text-gray-400 font-bold text-sm shrink-0">VS</span>
-                <select
-                  value={f.away}
+                <select value={f.away}
                   onChange={(e) => setTempFixtures((prev) => prev.map((x, j) => j === i ? { ...x, away: e.target.value } : x))}
-                  className="flex-1 border border-gray-300 rounded-lg px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-green-500"
-                >
+                  className="flex-1 border border-gray-300 rounded-lg px-2 py-2 text-xs focus:outline-none">
                   <option value="">Ospite</option>
                   {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
-                <button
-                  onClick={() => setTempFixtures((prev) => prev.filter((_, j) => j !== i))}
-                  className="text-red-400 font-bold text-lg shrink-0"
-                >✕</button>
+                <button onClick={() => setTempFixtures((prev) => prev.filter((_, j) => j !== i))}
+                  className="text-red-400 font-bold text-lg shrink-0">✕</button>
               </div>
             ))}
-            <button
-              onClick={() => setTempFixtures((prev) => [...prev, { home: '', away: '' }])}
-              className="w-full py-2 bg-gray-100 rounded-xl text-sm text-gray-600 font-semibold"
-            >
+            <button onClick={() => setTempFixtures((prev) => [...prev, { home: '', away: '' }])}
+              className="w-full py-2 bg-gray-100 rounded-xl text-sm text-gray-600 font-semibold">
               + Aggiungi sfida
             </button>
             <div className="flex gap-3">
-              <button
-                onClick={() => setEditFixtures(null)}
-                className="flex-1 py-3 border border-gray-300 rounded-xl text-sm font-semibold text-gray-600"
-              >
-                Annulla
-              </button>
-              <button
-                onClick={() => handleSaveFixtures(editFixtures)}
-                disabled={isPending}
-                className="flex-1 py-3 bg-green-600 text-white rounded-xl text-sm font-bold disabled:opacity-50"
-              >
-                Salva sfide
-              </button>
+              <button onClick={() => setEditFixtures(null)}
+                className="flex-1 py-3 border border-gray-300 rounded-xl text-sm font-semibold text-gray-600">Annulla</button>
+              <button onClick={() => handleSaveFixtures(editFixtures)} disabled={isPending}
+                className="flex-1 py-3 bg-green-600 text-white rounded-xl text-sm font-bold disabled:opacity-50">Salva sfide</button>
             </div>
           </div>
         </div>
@@ -258,20 +309,47 @@ export default function GiornateClient({ league, initialMatchdays, teams, initia
 
         {matchdays.map((matchday) => {
           const mFixtures = fixtures.filter((f) => f.matchday_id === matchday.id)
+          const lineupsByTeam = lineupsByMatchdayTeam[matchday.id] ?? {}
+          const mResults = resultsByMatchday[matchday.id] ?? []
+          const tab = getTab(matchday.id)
+
+          // Conta formazioni inviate
+          const submittedCount = mFixtures.reduce((acc, f) => {
+            if (lineupsByTeam[f.home_team_id]) acc++
+            if (lineupsByTeam[f.away_team_id]) acc++
+            return acc
+          }, 0)
+          const expectedCount = mFixtures.length * 2
+
           return (
             <div key={matchday.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              {/* Header */}
               <div
                 className="px-4 py-3 flex items-center gap-3 cursor-pointer"
                 onClick={() => setExpanded(expanded === matchday.id ? null : matchday.id)}
               >
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-gray-800">
-                      Giornata {matchday.number}
-                    </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-gray-800">Giornata {matchday.number}</span>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${STATUS_COLORS[matchday.status]}`}>
                       {STATUS_LABELS[matchday.status]}
                     </span>
+                    {mFixtures.length > 0 && (
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                        submittedCount === expectedCount
+                          ? 'bg-green-100 text-green-700'
+                          : submittedCount > 0
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {submittedCount}/{expectedCount} form.
+                      </span>
+                    )}
+                    {mResults.length > 0 && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">
+                        Risultati salvati
+                      </span>
+                    )}
                   </div>
                   {matchday.deadline && (
                     <p className="text-xs text-gray-400 mt-0.5">
@@ -283,28 +361,22 @@ export default function GiornateClient({ league, initialMatchdays, teams, initia
                     </p>
                   )}
                 </div>
-                <span className="text-gray-400 text-sm shrink-0">
-                  {expanded === matchday.id ? '▲' : '▼'}
-                </span>
+                <span className="text-gray-400 text-sm shrink-0">{expanded === matchday.id ? '▲' : '▼'}</span>
               </div>
 
               {expanded === matchday.id && (
                 <div className="border-t border-gray-100 px-4 py-3 space-y-3">
-                  {/* Cambia stato */}
+
+                  {/* Stato */}
                   <div>
-                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">
-                      Stato
-                    </p>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">Stato</p>
                     <div className="flex gap-2">
                       {(['upcoming', 'open', 'closed'] as const).map((s) => (
-                        <button
-                          key={s}
+                        <button key={s}
                           onClick={() => handleStatusChange(matchday.id, s)}
                           disabled={isPending || matchday.status === s}
                           className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                            matchday.status === s
-                              ? STATUS_COLORS[s]
-                              : 'bg-gray-100 text-gray-400'
+                            matchday.status === s ? STATUS_COLORS[s] : 'bg-gray-100 text-gray-400'
                           } disabled:opacity-60`}
                         >
                           {STATUS_LABELS[s]}
@@ -319,10 +391,8 @@ export default function GiornateClient({ league, initialMatchdays, teams, initia
                       <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">
                         Sfide ({mFixtures.length})
                       </p>
-                      <button
-                        onClick={() => openEditFixtures(matchday)}
-                        className="text-xs text-blue-600 font-bold bg-blue-50 px-2.5 py-1 rounded-lg"
-                      >
+                      <button onClick={() => openEditFixtures(matchday)}
+                        className="text-xs text-blue-600 font-bold bg-blue-50 px-2.5 py-1 rounded-lg">
                         Modifica
                       </button>
                     </div>
@@ -332,23 +402,71 @@ export default function GiornateClient({ league, initialMatchdays, teams, initia
                       <div className="space-y-1">
                         {mFixtures.map((f) => (
                           <p key={f.id} className="text-xs text-gray-600">
-                            {teams.find((t) => t.id === f.home_team_id)?.name || '?'}
-                            {' vs '}
-                            {teams.find((t) => t.id === f.away_team_id)?.name || '?'}
+                            {teamById[f.home_team_id]?.name || '?'} vs {teamById[f.away_team_id]?.name || '?'}
                           </p>
                         ))}
                       </div>
                     )}
                   </div>
 
-                  {/* Link voti */}
-                  {(matchday.status === 'closed' || matchday.status === 'completed') && (
-                    <Link
-                      href={`/admin/voti?giornata=${matchday.id}`}
-                      className="block text-center text-sm font-bold text-green-700 bg-green-50 py-2.5 rounded-xl"
-                    >
-                      Inserisci voti →
-                    </Link>
+                  {/* Tabs: Formazioni / Elabora */}
+                  {mFixtures.length > 0 && (
+                    <div>
+                      <div className="flex gap-1 mb-3 border-b border-gray-100">
+                        {(['formazioni', 'elabora'] as const).map((t) => (
+                          <button
+                            key={t}
+                            onClick={() => setTab(matchday.id, t)}
+                            className={`px-3 py-2 text-xs font-bold border-b-2 transition-colors ${
+                              tab === t
+                                ? 'border-gray-800 text-gray-800'
+                                : 'border-transparent text-gray-400 hover:text-gray-600'
+                            }`}
+                          >
+                            {t === 'formazioni' ? 'Formazioni' : 'Elabora risultati'}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Tab: Formazioni */}
+                      {tab === 'formazioni' && (
+                        <div className="space-y-3">
+                          {mFixtures.map((f) => (
+                            <div key={f.id} className="border border-gray-100 rounded-xl overflow-hidden">
+                              <div className="bg-gray-50 px-3 py-1.5">
+                                <span className="text-xs font-bold text-gray-500">
+                                  {teamById[f.home_team_id]?.name} vs {teamById[f.away_team_id]?.name}
+                                </span>
+                              </div>
+                              <div className="flex gap-3 p-3">
+                                <LineupCompact
+                                  lineup={lineupsByTeam[f.home_team_id] ?? null}
+                                  teamName={teamById[f.home_team_id]?.name ?? '—'}
+                                />
+                                <div className="w-px bg-gray-100 shrink-0" />
+                                <LineupCompact
+                                  lineup={lineupsByTeam[f.away_team_id] ?? null}
+                                  teamName={teamById[f.away_team_id]?.name ?? '—'}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Tab: Elabora risultati */}
+                      {tab === 'elabora' && (
+                        <ElaboraMatchday
+                          matchdayId={matchday.id}
+                          fixtures={mFixtures}
+                          teams={teams}
+                          votiArchivio={votiArchivio}
+                          settings={settings}
+                          lineupsByTeam={lineupsByTeam}
+                          existingResults={mResults}
+                        />
+                      )}
+                    </div>
                   )}
 
                   {/* Elimina */}
