@@ -1,0 +1,386 @@
+'use client'
+
+import { useState, useMemo } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import type { LeagueSettings } from '@/lib/settings'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface Player {
+  id: string
+  name: string
+  role: string
+  codice: string | null
+  serie_a_team: string | null
+}
+
+interface VotiArchivio {
+  id: string
+  stagione: string
+  giornata: number
+  filename: string | null
+}
+
+interface Props {
+  myTeamId: string | null
+  teams: { id: string; name: string }[]
+  players: Player[]
+  playerIdsByTeam: Record<string, string[]>
+  votiArchivio: VotiArchivio[]
+  settings: LeagueSettings
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const ROLE_ORDER = ['P', 'D', 'C', 'A'] as const
+const ROLE_LABELS: Record<string, string> = {
+  P: 'Portieri', D: 'Difensori', C: 'Centrocampisti', A: 'Attaccanti',
+}
+const ROLE_COLORS: Record<string, string> = {
+  P: 'bg-yellow-100 text-yellow-700',
+  D: 'bg-blue-100 text-blue-700',
+  C: 'bg-green-100 text-green-700',
+  A: 'bg-red-100 text-red-700',
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export default function SelezioneLibera({
+  myTeamId, teams, players, playerIdsByTeam, votiArchivio,
+}: Props) {
+  const [source, setSource] = useState<string>(myTeamId ?? 'all')
+  const [search, setSearch] = useState('')
+  const [selectedPids, setSelectedPids] = useState<Set<string>>(new Set())
+  const [selectedArchivioId, setSelectedArchivioId] = useState(votiArchivio[0]?.id ?? '')
+  const [voti, setVoti] = useState<Record<string, number | null>>({})
+  const [loadStatus, setLoadStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
+  const [loadMsg, setLoadMsg] = useState('')
+
+  // ── Pool filtrato ──────────────────────────────────────────────────────────
+
+  const pool = useMemo(() => {
+    let base = players
+    if (source !== 'all') {
+      const pids = new Set(playerIdsByTeam[source] ?? [])
+      base = players.filter((p) => pids.has(p.id))
+    }
+    if (search.trim()) {
+      const s = search.toLowerCase()
+      base = base.filter(
+        (p) =>
+          p.name.toLowerCase().includes(s) ||
+          (p.serie_a_team ?? '').toLowerCase().includes(s),
+      )
+    }
+    return base
+  }, [players, source, search, playerIdsByTeam])
+
+  const poolByRole = useMemo(
+    () =>
+      ROLE_ORDER.reduce<Record<string, Player[]>>((acc, r) => {
+        acc[r] = pool.filter((p) => p.role === r)
+        return acc
+      }, { P: [], D: [], C: [], A: [] }),
+    [pool],
+  )
+
+  // ── Score ─────────────────────────────────────────────────────────────────
+
+  const selectedPlayers = useMemo(
+    () => players.filter((p) => selectedPids.has(p.id)),
+    [players, selectedPids],
+  )
+
+  const getVoto = (p: Player): number | null =>
+    loadStatus === 'loaded' && p.codice ? (voti[p.codice] ?? null) : null
+
+  const total = useMemo(() => {
+    if (loadStatus !== 'loaded') return 0
+    return Math.round(
+      selectedPlayers.reduce((s, p) => s + (getVoto(p) ?? 0), 0) * 10,
+    ) / 10
+  }, [selectedPlayers, voti, loadStatus]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const votedCount = useMemo(
+    () => selectedPlayers.filter((p) => getVoto(p) !== null).length,
+    [selectedPlayers, voti, loadStatus], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  const togglePlayer = (pid: string) => {
+    setSelectedPids((prev) => {
+      const next = new Set(prev)
+      if (next.has(pid)) next.delete(pid)
+      else next.add(pid)
+      return next
+    })
+  }
+
+  const handleSourceChange = (newSource: string) => {
+    setSource(newSource)
+    setSearch('')
+  }
+
+  const handleLoadVoti = async () => {
+    const archivio = votiArchivio.find((a) => a.id === selectedArchivioId)
+    if (!archivio) return
+    setLoadStatus('loading'); setLoadMsg('')
+    const supabase = createClient()
+    const { data, error } = await supabase
+      .from('voti_giornata')
+      .select('codice, voto_fanta')
+      .eq('stagione', archivio.stagione)
+      .eq('giornata', archivio.giornata)
+    if (error) { setLoadStatus('error'); setLoadMsg(error.message); return }
+    const map: Record<string, number | null> = {}
+    for (const v of data ?? []) map[v.codice] = v.voto_fanta
+    setVoti(map)
+    setLoadStatus('loaded')
+  }
+
+  const selectedArchivio = votiArchivio.find((a) => a.id === selectedArchivioId)
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="min-h-screen bg-gray-50 pb-24">
+      {/* Header */}
+      <div className="bg-indigo-700 text-white px-4 pt-12 pb-5">
+        <h1 className="text-xl font-bold">Selezione Libera</h1>
+        <p className="text-indigo-200 text-sm mt-0.5">Componi una formazione e calcola il punteggio</p>
+      </div>
+
+      <div className="px-4 py-4 space-y-3">
+
+        {/* Fonte + Cerca */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wide block mb-1.5">
+              Fonte giocatori
+            </label>
+            <select
+              value={source}
+              onChange={(e) => handleSourceChange(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+            >
+              <option value="all">Tutti i giocatori</option>
+              {myTeamId && (
+                <option value={myTeamId}>
+                  La mia rosa ({teams.find((t) => t.id === myTeamId)?.name ?? '—'})
+                </option>
+              )}
+              {teams
+                .filter((t) => t.id !== myTeamId)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    Rosa di {t.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div>
+            <input
+              type="text"
+              placeholder="Cerca giocatore o squadra..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+          </div>
+        </div>
+
+        {/* Barra selezione + score */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-gray-700">
+              {selectedPids.size} selezionati
+            </span>
+            {selectedPids.size > 0 && (
+              <button
+                onClick={() => setSelectedPids(new Set())}
+                className="text-xs text-red-400 font-semibold bg-red-50 px-2 py-0.5 rounded-lg"
+              >
+                Azzera
+              </button>
+            )}
+          </div>
+          {loadStatus === 'loaded' && selectedPids.size > 0 && (
+            <div className="text-right">
+              <span className="text-lg font-black text-indigo-700">{total.toFixed(1)}</span>
+              <span className="text-xs text-gray-400 ml-1">pt</span>
+              <span className="text-xs text-gray-400 ml-2">({votedCount}/{selectedPids.size} con voto)</span>
+            </div>
+          )}
+        </div>
+
+        {/* Pool giocatori per ruolo */}
+        {ROLE_ORDER.map((role) => {
+          const rolePlayers = poolByRole[role]
+          if (rolePlayers.length === 0) return null
+          return (
+            <div key={role} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-50">
+                <span className={`text-xs font-bold px-2 py-0.5 rounded ${ROLE_COLORS[role]}`}>
+                  {role}
+                </span>
+                <span className="text-sm font-bold text-gray-700">{ROLE_LABELS[role]}</span>
+                <span className="text-xs text-gray-400 ml-auto">{rolePlayers.length}</span>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {rolePlayers.map((p) => {
+                  const isSelected = selectedPids.has(p.id)
+                  const voto = getVoto(p)
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => togglePlayer(p.id)}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                        isSelected ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      {/* Checkbox */}
+                      <div className={`w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-colors ${
+                        isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-gray-200'
+                      }`}>
+                        {isSelected && (
+                          <svg className="w-3 h-3 text-white" viewBox="0 0 12 10" fill="none">
+                            <path d="M1 5l3.5 3.5L11 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </div>
+                      {/* Nome + squadra */}
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm truncate ${isSelected ? 'font-bold text-indigo-800' : 'text-gray-700'}`}>
+                          {p.name}
+                        </p>
+                        {p.serie_a_team && (
+                          <p className="text-xs text-gray-400 truncate">{p.serie_a_team}</p>
+                        )}
+                      </div>
+                      {/* Voto */}
+                      {loadStatus === 'loaded' && (
+                        <span className={`text-sm font-bold tabular-nums shrink-0 ${
+                          voto !== null
+                            ? isSelected ? 'text-indigo-700' : 'text-gray-500'
+                            : 'text-gray-300'
+                        }`}>
+                          {voto !== null ? voto.toFixed(1) : 'sv'}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+
+        {pool.length === 0 && (
+          <div className="bg-white rounded-2xl p-6 text-center shadow-sm border border-gray-100">
+            <p className="text-gray-400 text-sm">
+              {source !== 'all'
+                ? 'Nessun giocatore nella rosa selezionata.'
+                : 'Nessun giocatore trovato.'}
+            </p>
+          </div>
+        )}
+
+        {/* Voti giornata */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Voti giornata</p>
+
+          {votiArchivio.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">Nessuna giornata voti importata.</p>
+          ) : (
+            <>
+              <div className="flex gap-2">
+                <select
+                  value={selectedArchivioId}
+                  onChange={(e) => {
+                    setSelectedArchivioId(e.target.value)
+                    setLoadStatus('idle')
+                    setVoti({})
+                  }}
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-xs text-gray-700 focus:outline-none bg-white"
+                >
+                  {votiArchivio.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.stagione} — G{a.giornata}{a.filename ? ` (${a.filename})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleLoadVoti}
+                  disabled={loadStatus === 'loading' || !selectedArchivioId}
+                  className="bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl disabled:opacity-40 whitespace-nowrap"
+                >
+                  {loadStatus === 'loading' ? 'Caricamento...' : 'Carica voti'}
+                </button>
+              </div>
+
+              {loadStatus === 'loaded' && selectedArchivio && (
+                <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+                  <span className="text-xs text-indigo-600 font-bold">Voti caricati:</span>
+                  <span className="text-xs text-indigo-700">
+                    {selectedArchivio.stagione} — Giornata {selectedArchivio.giornata}
+                  </span>
+                </div>
+              )}
+              {loadStatus === 'error' && (
+                <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{loadMsg}</p>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Riepilogo selezione con voti */}
+        {selectedPids.size > 0 && loadStatus === 'loaded' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-gray-50 flex items-center justify-between">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Riepilogo formazione</p>
+              <div>
+                <span className="text-lg font-black text-indigo-700">{total.toFixed(1)}</span>
+                <span className="text-xs text-gray-400 ml-1">pt totali</span>
+              </div>
+            </div>
+            {ROLE_ORDER.map((role) => {
+              const rp = selectedPlayers.filter((p) => p.role === role)
+              if (rp.length === 0) return null
+              return (
+                <div key={role}>
+                  <div className="px-4 py-1.5 bg-gray-50 flex items-center gap-2">
+                    <span className={`text-xs font-bold px-1.5 py-px rounded ${ROLE_COLORS[role]}`}>{role}</span>
+                    <span className="text-xs text-gray-500 font-semibold">{ROLE_LABELS[role]}</span>
+                  </div>
+                  {rp.map((p) => {
+                    const voto = getVoto(p)
+                    return (
+                      <div key={p.id} className="flex items-center gap-3 px-4 py-2 border-t border-gray-50">
+                        <span className="text-xs text-gray-700 flex-1 truncate font-medium">{p.name}</span>
+                        <span className={`text-sm font-bold tabular-nums ${
+                          voto !== null ? 'text-indigo-700' : 'text-gray-300'
+                        }`}>
+                          {voto !== null ? voto.toFixed(1) : 'sv'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+            <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between">
+              <span className="text-xs text-gray-400">
+                {votedCount} su {selectedPids.size} giocatori con voto
+              </span>
+              <div>
+                <span className="text-xl font-black text-indigo-700">{total.toFixed(1)}</span>
+                <span className="text-sm text-gray-400 ml-1">pt</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
