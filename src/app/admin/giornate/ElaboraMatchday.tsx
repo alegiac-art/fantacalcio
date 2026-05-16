@@ -28,6 +28,7 @@ interface Props {
   settings: LeagueSettings
   lineupsByTeam: Record<string, LineupData>
   existingResults: ExistingResult[]
+  onSaved?: (results: ExistingResult[]) => void
 }
 
 // Which player's vote is actually used for a starter slot
@@ -50,7 +51,7 @@ const ROLE_COLORS: Record<string, string> = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ElaboraMatchday({
-  matchdayId, fixtures, teams, votiArchivio, settings, lineupsByTeam, existingResults,
+  matchdayId, fixtures, teams, votiArchivio, settings, lineupsByTeam, existingResults, onSaved,
 }: Props) {
   const [selectedArchivioId, setSelectedArchivioId] = useState(
     votiArchivio.length > 0 ? votiArchivio[0].id : ''
@@ -226,6 +227,7 @@ export default function ElaboraMatchday({
       const data = await res.json()
       if (!res.ok || data.error) { setSaveMsg(`Errore: ${data.error ?? 'sconosciuto'}`); return }
       setSavedResults(data.results)
+      onSaved?.(data.results)
       setSaveMsg('Risultati salvati. Giornata segnata come Completata.')
     } catch (e) { setSaveMsg(`Errore: ${(e as Error).message}`) }
     finally { setSaving(false) }
@@ -484,7 +486,7 @@ export default function ElaboraMatchday({
             onClick={handleSave} disabled={saving}
             className="w-full bg-green-600 text-white font-bold py-3 rounded-xl text-sm disabled:opacity-40"
           >
-            {saving ? 'Salvataggio...' : 'Calcola e salva risultati'}
+            {saving ? 'Salvataggio...' : 'Salva / Modifica risultati giornata'}
           </button>
         </div>
       )}

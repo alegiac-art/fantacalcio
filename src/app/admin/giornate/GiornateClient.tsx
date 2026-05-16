@@ -40,13 +40,13 @@ interface Props {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  upcoming: 'In arrivo', open: 'Aperta', closed: 'Chiusa', completed: 'Completata',
+  upcoming: 'In arrivo', open: 'Aperta', closed: 'Chiusa', completed: 'Calcolata',
 }
 const STATUS_COLORS: Record<string, string> = {
   upcoming: 'bg-gray-100 text-gray-500',
   open: 'bg-green-100 text-green-700',
   closed: 'bg-orange-100 text-orange-700',
-  completed: 'bg-blue-100 text-blue-700',
+  completed: 'bg-purple-100 text-purple-700',
 }
 const ROLE_COLORS: Record<string, string> = {
   P: 'bg-yellow-100 text-yellow-700',
@@ -113,6 +113,7 @@ export default function GiornateClient({
 }: Props) {
   const [matchdays, setMatchdays] = useState<Matchday[]>(initialMatchdays)
   const [fixtures, setFixtures] = useState<Fixture[]>(initialFixtures)
+  const [localResultsByMatchday, setLocalResultsByMatchday] = useState<Record<string, ResultRow[]>>(resultsByMatchday)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<Record<string, 'formazioni' | 'elabora'>>({})
   const [newNumber, setNewNumber] = useState(
@@ -127,6 +128,16 @@ export default function GiornateClient({
   const router = useRouter()
 
   const teamById = Object.fromEntries(teams.map((t) => [t.id, t]))
+
+  const handleResultsSaved = (matchdayId: string, results: { team_id: string; total_score: number; goals_scored: number; goals_conceded: number; points: number }[]) => {
+    setLocalResultsByMatchday((prev) => ({
+      ...prev,
+      [matchdayId]: results.map((r) => ({ matchday_id: matchdayId, ...r })),
+    }))
+    setMatchdays((prev) =>
+      prev.map((m) => (m.id === matchdayId ? { ...m, status: 'completed' } : m))
+    )
+  }
 
   const getTab = (matchdayId: string) => activeTab[matchdayId] ?? 'formazioni'
   const setTab = (matchdayId: string, tab: 'formazioni' | 'elabora') =>
@@ -310,7 +321,7 @@ export default function GiornateClient({
         {matchdays.map((matchday) => {
           const mFixtures = fixtures.filter((f) => f.matchday_id === matchday.id)
           const lineupsByTeam = lineupsByMatchdayTeam[matchday.id] ?? {}
-          const mResults = resultsByMatchday[matchday.id] ?? []
+          const mResults = localResultsByMatchday[matchday.id] ?? []
           const tab = getTab(matchday.id)
 
           // Conta formazioni inviate
@@ -345,11 +356,6 @@ export default function GiornateClient({
                         {submittedCount}/{expectedCount} form.
                       </span>
                     )}
-                    {mResults.length > 0 && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">
-                        Risultati salvati
-                      </span>
-                    )}
                   </div>
                   {matchday.deadline && (
                     <p className="text-xs text-gray-400 mt-0.5">
@@ -382,6 +388,11 @@ export default function GiornateClient({
                           {STATUS_LABELS[s]}
                         </button>
                       ))}
+                      <div className={`flex-1 py-1.5 rounded-lg text-xs font-bold text-center ${
+                        matchday.status === 'completed' ? STATUS_COLORS['completed'] : 'bg-gray-50 text-gray-300'
+                      }`}>
+                        {STATUS_LABELS['completed']}
+                      </div>
                     </div>
                   </div>
 
@@ -399,12 +410,27 @@ export default function GiornateClient({
                     {mFixtures.length === 0 ? (
                       <p className="text-xs text-gray-400">Nessuna sfida configurata</p>
                     ) : (
-                      <div className="space-y-1">
-                        {mFixtures.map((f) => (
-                          <p key={f.id} className="text-xs text-gray-600">
-                            {teamById[f.home_team_id]?.name || '?'} vs {teamById[f.away_team_id]?.name || '?'}
-                          </p>
-                        ))}
+                      <div className="space-y-1.5">
+                        {mFixtures.map((f) => {
+                          const homeResult = mResults.find((r) => r.team_id === f.home_team_id)
+                          const awayResult = mResults.find((r) => r.team_id === f.away_team_id)
+                          return (
+                            <div key={f.id} className="flex items-center gap-2">
+                              <span className="text-xs text-gray-600 flex-1">
+                                {teamById[f.home_team_id]?.name || '?'} vs {teamById[f.away_team_id]?.name || '?'}
+                              </span>
+                              {homeResult && awayResult && (
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="text-xs text-gray-400">{homeResult.total_score.toFixed(1)}</span>
+                                  <span className="text-xs font-black text-gray-800 bg-gray-100 px-2 py-0.5 rounded-lg">
+                                    {homeResult.goals_scored} – {awayResult.goals_scored}
+                                  </span>
+                                  <span className="text-xs text-gray-400">{awayResult.total_score.toFixed(1)}</span>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
@@ -464,6 +490,7 @@ export default function GiornateClient({
                           settings={settings}
                           lineupsByTeam={lineupsByTeam}
                           existingResults={mResults}
+                          onSaved={(results) => handleResultsSaved(matchday.id, results)}
                         />
                       )}
                     </div>
