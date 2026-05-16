@@ -22,7 +22,7 @@ export default async function CalendarioPage() {
   ] = await Promise.all([
     supabase
       .from('matchdays')
-      .select('id, number, deadline, status')
+      .select('id, number, deadline, status, voti_archivio:voti_archivio_id(stagione, giornata)')
       .order('number', { ascending: true }),
 
     supabase
@@ -39,7 +39,7 @@ export default async function CalendarioPage() {
 
     supabase
       .from('lineup_players')
-      .select('lineup_id, player_id, is_starter, bench_order, asterisco, players(name, role)'),
+      .select('lineup_id, player_id, is_starter, bench_order, asterisco, players(name, role, codice)'),
   ])
 
   // ── Tipi ──────────────────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ export default async function CalendarioPage() {
   type LPRow = {
     lineup_id: string; player_id: string
     is_starter: boolean; bench_order: number; asterisco: boolean
-    players: { name: string; role: string }
+    players: { name: string; role: string; codice: string | null }
   }
 
   // ── Indici ────────────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ export default async function CalendarioPage() {
 
   // Costruisci lineupsByMatchdayTeam: matchday_id → team_id → LineupData
   type LineupPlayer = {
-    player_id: string; name: string; role: string
+    player_id: string; name: string; role: string; codice: string | null
     is_starter: boolean; bench_order: number; asterisco: boolean
   }
   type LineupData = { formation: string; players: LineupPlayer[] }
@@ -107,6 +107,7 @@ export default async function CalendarioPage() {
         player_id: lp.player_id,
         name: lp.players.name,
         role: lp.players.role,
+        codice: lp.players.codice ?? null,
         is_starter: lp.is_starter,
         bench_order: lp.bench_order ?? 0,
         asterisco: lp.asterisco ?? false,
@@ -116,7 +117,13 @@ export default async function CalendarioPage() {
 
   return (
     <CalendarioClient
-      matchdays={(matchdays || []) as { id: string; number: number; deadline: string | null; status: string }[]}
+      matchdays={(matchdays || []).map((m) => {
+        const raw = m as unknown as { id: string; number: number; deadline: string | null; status: string; voti_archivio: { stagione: string; giornata: number }[] | null }
+        return {
+          id: raw.id, number: raw.number, deadline: raw.deadline, status: raw.status,
+          voti_archivio: Array.isArray(raw.voti_archivio) ? (raw.voti_archivio[0] ?? null) : (raw.voti_archivio ?? null),
+        }
+      })}
       myTeamId={myTeam?.id ?? null}
       fixturesByMatchday={fixturesByMatchday as Record<string, FixtureRow[]>}
       resultsByMatchday={resultsByMatchday as Record<string, ResultRow[]>}

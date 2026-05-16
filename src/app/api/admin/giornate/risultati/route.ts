@@ -36,8 +36,9 @@ export async function POST(request: NextRequest) {
   const body = await request.json() as {
     matchday_id: string
     fixtureResults: FixtureResult[]
+    voti_archivio_id?: string | null
   }
-  const { matchday_id, fixtureResults } = body
+  const { matchday_id, fixtureResults, voti_archivio_id } = body
 
   if (!matchday_id || !Array.isArray(fixtureResults) || fixtureResults.length === 0) {
     return NextResponse.json({ error: 'matchday_id e fixtureResults sono obbligatori' }, { status: 400 })
@@ -78,8 +79,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: upsertErr.message }, { status: 500 })
   }
 
-  // Segna giornata come completata
-  await sc.from('matchdays').update({ status: 'completed' }).eq('id', matchday_id)
+  // Segna giornata come completata e salva riferimento ai voti usati
+  await sc.from('matchdays')
+    .update({ status: 'completed', voti_archivio_id: voti_archivio_id ?? null })
+    .eq('id', matchday_id)
 
   const results = toUpsert.map(({ matchday_id: _, ...r }) => r)
   return NextResponse.json({ success: true, results })

@@ -222,7 +222,7 @@ export default function ElaboraMatchday({
       const res = await fetch('/api/admin/giornate/risultati', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matchday_id: matchdayId, fixtureResults }),
+        body: JSON.stringify({ matchday_id: matchdayId, fixtureResults, voti_archivio_id: selectedArchivio?.id ?? null }),
       })
       const data = await res.json()
       if (!res.ok || data.error) { setSaveMsg(`Errore: ${data.error ?? 'sconosciuto'}`); return }
