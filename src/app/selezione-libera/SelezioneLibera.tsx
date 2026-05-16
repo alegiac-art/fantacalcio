@@ -56,6 +56,7 @@ export default function SelezioneLibera({
   const [voti, setVoti] = useState<Record<string, number | null>>({})
   const [loadStatus, setLoadStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
   const [loadMsg, setLoadMsg] = useState('')
+  const [showSelectedPanel, setShowSelectedPanel] = useState(false)
 
   // ── Pool filtrato ──────────────────────────────────────────────────────────
 
@@ -155,48 +156,116 @@ export default function SelezioneLibera({
       </div>
 
       {/* ── Barra di stato sticky ─────────────────────────────────────────── */}
-      <div className="sticky top-0 z-10 bg-white border-b border-gray-100 shadow-sm px-4 py-2.5 flex items-center gap-3">
-        {/* Contatore selezionati */}
-        <div className="flex items-center gap-1.5 flex-1">
-          <span className={`text-sm font-black tabular-nums ${selectedPids.size === FORMATION_SIZE ? 'text-green-600' : 'text-indigo-700'}`}>
-            {selectedPids.size}
-          </span>
-          <span className="text-xs text-gray-400 font-medium">/{FORMATION_SIZE}</span>
-          {missing > 0 ? (
-            <span className="text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-lg font-semibold ml-1">
-              mancano {missing}
+      <div className="sticky top-0 z-10 bg-white border-b border-gray-100 shadow-sm">
+        {/* Riga principale */}
+        <div className="px-4 py-2.5 flex items-center gap-3">
+          {/* Contatore selezionati */}
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            <span className={`text-sm font-black tabular-nums ${selectedPids.size === FORMATION_SIZE ? 'text-green-600' : 'text-indigo-700'}`}>
+              {selectedPids.size}
             </span>
-          ) : (
-            <span className="text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded-lg font-semibold ml-1">
-              completa ✓
-            </span>
-          )}
-          {selectedPids.size > 0 && (
-            <button
-              onClick={() => setSelectedPids(new Set())}
-              className="text-xs text-gray-400 underline ml-1"
-            >
-              azzera
-            </button>
-          )}
-        </div>
-
-        {/* Totale (mostrato sempre se voti caricati) */}
-        {total !== null ? (
-          <div className="text-right shrink-0">
-            <span className="text-lg font-black text-indigo-700 tabular-nums">{total.toFixed(1)}</span>
-            <span className="text-xs text-gray-400 ml-1">pt</span>
-            {selectedPids.size > 0 && (
-              <span className="text-xs text-gray-400 block leading-none">
-                {votedCount}/{selectedPids.size} con voto
+            <span className="text-xs text-gray-400 font-medium">/{FORMATION_SIZE}</span>
+            {missing > 0 ? (
+              <span className="text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-lg font-semibold ml-1 shrink-0">
+                mancano {missing}
+              </span>
+            ) : (
+              <span className="text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded-lg font-semibold ml-1 shrink-0">
+                completa ✓
               </span>
             )}
+            {selectedPids.size > 0 && (
+              <button
+                onClick={() => setSelectedPids(new Set())}
+                className="text-xs text-gray-400 underline ml-1 shrink-0"
+              >
+                azzera
+              </button>
+            )}
           </div>
-        ) : loadStatus === 'idle' ? (
-          <span className="text-xs text-gray-300 shrink-0">carica voti →</span>
-        ) : loadStatus === 'loading' ? (
-          <span className="text-xs text-indigo-400 shrink-0">caricamento...</span>
-        ) : null}
+
+          {/* Totale */}
+          {total !== null ? (
+            <div className="text-right shrink-0">
+              <span className="text-lg font-black text-indigo-700 tabular-nums">{total.toFixed(1)}</span>
+              <span className="text-xs text-gray-400 ml-1">pt</span>
+              {selectedPids.size > 0 && (
+                <span className="text-xs text-gray-400 block leading-none">
+                  {votedCount}/{selectedPids.size} con voto
+                </span>
+              )}
+            </div>
+          ) : loadStatus === 'idle' ? (
+            <span className="text-xs text-gray-300 shrink-0">carica voti →</span>
+          ) : loadStatus === 'loading' ? (
+            <span className="text-xs text-indigo-400 shrink-0">caricamento...</span>
+          ) : null}
+
+          {/* Toggle pannello selezionati */}
+          <button
+            onClick={() => setShowSelectedPanel((v) => !v)}
+            disabled={selectedPids.size === 0}
+            className={`shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
+              selectedPids.size === 0
+                ? 'text-gray-200'
+                : showSelectedPanel
+                  ? 'bg-indigo-100 text-indigo-600'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}
+            title={showSelectedPanel ? 'Nascondi selezionati' : 'Mostra selezionati'}
+          >
+            <svg className={`w-4 h-4 transition-transform ${showSelectedPanel ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Pannello giocatori selezionati (espandibile) */}
+        {showSelectedPanel && selectedPids.size > 0 && (
+          <div className="border-t border-gray-100 px-4 py-3 max-h-64 overflow-y-auto bg-gray-50">
+            {selectedPids.size === 0 ? (
+              <p className="text-xs text-gray-400 italic text-center py-1">Nessun giocatore selezionato</p>
+            ) : (
+              <div className="space-y-2">
+                {ROLE_ORDER.map((role) => {
+                  const rp = selectedPlayers.filter((p) => p.role === role)
+                  if (rp.length === 0) return null
+                  return (
+                    <div key={role}>
+                      <span className={`text-xs font-bold px-1.5 py-px rounded inline-block mb-1 ${ROLE_COLORS[role]}`}>
+                        {role}
+                      </span>
+                      <div className="space-y-0.5">
+                        {rp.map((p) => {
+                          const voto = getVoto(p)
+                          return (
+                            <div key={p.id} className="flex items-center gap-2">
+                              <span className="text-xs text-gray-700 flex-1 truncate font-medium">{p.name}</span>
+                              {total !== null && (
+                                <span className={`text-xs font-bold tabular-nums shrink-0 ${voto !== null ? 'text-indigo-600' : 'text-gray-300'}`}>
+                                  {voto !== null ? voto.toFixed(1) : 'sv'}
+                                </span>
+                              )}
+                              <button
+                                onClick={() => togglePlayer(p.id)}
+                                className="text-gray-300 hover:text-red-400 shrink-0 transition-colors"
+                                title="Rimuovi"
+                              >
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="px-4 py-4 space-y-3">
