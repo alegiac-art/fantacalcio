@@ -49,10 +49,9 @@ function RedCard() {
 }
 
 function CardIcons({ ammonizione, espulsione }: { ammonizione: number | null; espulsione: number | null }) {
-  if (ammonizione === null && espulsione === null) return null
-  // Numero di cartellini gialli: 1 se |ammonizione| <= 0.5, altrimenti 2
-  const yellowCount = ammonizione !== null ? (Math.abs(ammonizione) > 0.5 ? 2 : 1) : 0
-  const hasRed = espulsione !== null
+  const yellowCount = ammonizione === 1 ? 1 : ammonizione === 2 ? 2 : 0
+  const hasRed = espulsione === 1
+  if (yellowCount === 0 && !hasRed) return null
   return (
     <span className="inline-flex items-center gap-0.5 shrink-0">
       {Array.from({ length: yellowCount }).map((_, i) => <YellowCard key={i} />)}
