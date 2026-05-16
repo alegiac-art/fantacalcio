@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 
 const BUCKET = 'voti-excel'
 
-// Colonne 0-based: A=0, B=1, ..., G=6, H=7, ..., K=10, AG=32
+// Colonne 0-based: A=0, B=1, ..., G=6, H=7, ..., K=10, X=23, Y=24, AB=27, AC=28, AG=32
 // Struttura PianetaFanta: A=codice, B=nome, C=ruolo, D=?, E=squadra, F=?, G=votoGazzetta
 const COL_A  = 0
 const COL_B  = 1
@@ -18,6 +18,10 @@ const COL_H  = 7
 const COL_I  = 8
 const COL_J  = 9
 const COL_K  = 10
+const COL_X  = 23  // Ammonizione
+const COL_Y  = 24  // Espulsione
+const COL_AB = 27  // Rigore subito
+const COL_AC = 28  // Rigore parato
 const COL_AG = 32
 
 function isSenzaVoto(s: string): boolean {
@@ -178,6 +182,10 @@ export async function POST(request: NextRequest) {
     const cellI  = readCell(sheet, i, COL_I)
     const cellJ  = readCell(sheet, i, COL_J)
     const cellK  = readCell(sheet, i, COL_K)
+    const cellX  = readCell(sheet, i, COL_X)
+    const cellY  = readCell(sheet, i, COL_Y)
+    const cellAB = readCell(sheet, i, COL_AB)
+    const cellAC = readCell(sheet, i, COL_AC)
     const cellAG = readCell(sheet, i, COL_AG)
 
     toInsert.push({
@@ -199,6 +207,10 @@ export async function POST(request: NextRequest) {
       col_j:   cellJ.num,
       col_k_label: labelK,
       col_k:   cellK.num,
+      ammonizione:   cellX.num,
+      espulsione:    cellY.num,
+      rigore_subito: cellAB.num,
+      rigore_parato: cellAC.num,
       voto_fanta: cellAG.num,
       voto_fanta_originale: cellAG.text || null,
     })

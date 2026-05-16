@@ -24,13 +24,23 @@ type VotiRow = {
   col_j: number | null
   col_k_label: string | null
   col_k: number | null
+  ammonizione: number | null
+  espulsione: number | null
+  rigore_subito: number | null
+  rigore_parato: number | null
 }
 
-type EditingCell = { rowId: string; col: 'col_g' | 'col_h' | 'col_i' | 'col_j' | 'col_k'; value: string }
+type EditingCell = { rowId: string; col: 'col_g' | 'col_h' | 'col_i' | 'col_j' | 'col_k' | 'ammonizione' | 'espulsione' | 'rigore_subito' | 'rigore_parato'; value: string }
 
 const RUOLI = ['P', 'D', 'C', 'A']
 const PAGE_SIZE = 50
 const NUM_COLS: Array<'col_g' | 'col_h' | 'col_i' | 'col_j' | 'col_k'> = ['col_g', 'col_h', 'col_i', 'col_j', 'col_k']
+const BONUS_COLS: Array<{ key: 'ammonizione' | 'espulsione' | 'rigore_subito' | 'rigore_parato'; label: string }> = [
+  { key: 'ammonizione', label: 'Amm' },
+  { key: 'espulsione', label: 'Esp' },
+  { key: 'rigore_subito', label: 'RigS' },
+  { key: 'rigore_parato', label: 'RigPar' },
+]
 
 interface Props {
   stagioni: string[]
@@ -322,6 +332,11 @@ export default function VotiGiornataClient({ stagioni, giornatePerStagione }: Pr
                       {labels[col]}
                     </th>
                   ))}
+                  {BONUS_COLS.map(({ key, label }) => (
+                    <th key={key} className="px-3 py-2.5 text-center font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      {label}
+                    </th>
+                  ))}
                   <th className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">VotoOrig.</th>
                   <th className="px-3 py-2.5 text-left font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">VotoFantaOrig.</th>
                   <th className="px-3 py-2.5"></th>
@@ -380,6 +395,41 @@ export default function VotiGiornataClient({ stagioni, giornatePerStagione }: Pr
                               } ${row[col] === null ? 'text-gray-300' : 'text-gray-800 font-medium'}`}
                             >
                               {row[col] !== null ? String(row[col]) : '—'}
+                            </button>
+                          )}
+                        </td>
+                      )
+                    })}
+                    {/* Bonus/malus columns */}
+                    {BONUS_COLS.map(({ key }) => {
+                      const isEditing = editingCell?.rowId === row.id && editingCell.col === key
+                      const isSaving = savingId === row.id
+                      return (
+                        <td key={key} className="px-1 py-1 text-center whitespace-nowrap">
+                          {isEditing ? (
+                            <input
+                              ref={editInputRef}
+                              type="text"
+                              value={editingCell.value}
+                              onChange={(e) => setEditingCell({ ...editingCell, value: e.target.value })}
+                              onBlur={saveCell}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveCell()
+                                if (e.key === 'Escape') setEditingCell(null)
+                              }}
+                              className="w-14 text-center border border-blue-400 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            />
+                          ) : (
+                            <button
+                              onClick={() => setEditingCell({ rowId: row.id, col: key, value: String(row[key] ?? '') })}
+                              disabled={isSaving || deletingId !== null}
+                              className={`w-14 text-center rounded px-1 py-0.5 transition-colors ${
+                                isSaving
+                                  ? 'opacity-50'
+                                  : 'hover:bg-blue-50 hover:text-blue-700 cursor-pointer'
+                              } ${row[key] === null ? 'text-gray-300' : 'text-gray-800 font-medium'}`}
+                            >
+                              {row[key] !== null ? String(row[key]) : '—'}
                             </button>
                           )}
                         </td>
