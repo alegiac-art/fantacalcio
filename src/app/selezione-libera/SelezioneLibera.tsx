@@ -32,6 +32,7 @@ interface Props {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
+const FORMATION_SIZE = 11
 const ROLE_ORDER = ['P', 'D', 'C', 'A'] as const
 const ROLE_LABELS: Record<string, string> = {
   P: 'Portieri', D: 'Difensori', C: 'Centrocampisti', A: 'Attaccanti',
@@ -94,17 +95,19 @@ export default function SelezioneLibera({
   const getVoto = (p: Player): number | null =>
     loadStatus === 'loaded' && p.codice ? (voti[p.codice] ?? null) : null
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const total = useMemo(() => {
-    if (loadStatus !== 'loaded') return 0
-    return Math.round(
-      selectedPlayers.reduce((s, p) => s + (getVoto(p) ?? 0), 0) * 10,
-    ) / 10
-  }, [selectedPlayers, voti, loadStatus]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (loadStatus !== 'loaded') return null
+    return Math.round(selectedPlayers.reduce((s, p) => s + (getVoto(p) ?? 0), 0) * 10) / 10
+  }, [selectedPlayers, voti, loadStatus])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const votedCount = useMemo(
     () => selectedPlayers.filter((p) => getVoto(p) !== null).length,
-    [selectedPlayers, voti, loadStatus], // eslint-disable-line react-hooks/exhaustive-deps
+    [selectedPlayers, voti, loadStatus],
   )
+
+  const missing = Math.max(0, FORMATION_SIZE - selectedPids.size)
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -146,150 +149,61 @@ export default function SelezioneLibera({
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
       {/* Header */}
-      <div className="bg-indigo-700 text-white px-4 pt-12 pb-5">
+      <div className="bg-indigo-700 text-white px-4 pt-12 pb-4">
         <h1 className="text-xl font-bold">Selezione Libera</h1>
         <p className="text-indigo-200 text-sm mt-0.5">Componi una formazione e calcola il punteggio</p>
       </div>
 
-      <div className="px-4 py-4 space-y-3">
-
-        {/* Fonte + Cerca */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
-          <div>
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-wide block mb-1.5">
-              Fonte giocatori
-            </label>
-            <select
-              value={source}
-              onChange={(e) => handleSourceChange(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
-            >
-              <option value="all">Tutti i giocatori</option>
-              {myTeamId && (
-                <option value={myTeamId}>
-                  La mia rosa ({teams.find((t) => t.id === myTeamId)?.name ?? '—'})
-                </option>
-              )}
-              {teams
-                .filter((t) => t.id !== myTeamId)
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    Rosa di {t.name}
-                  </option>
-                ))}
-            </select>
-          </div>
-          <div>
-            <input
-              type="text"
-              placeholder="Cerca giocatore o squadra..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            />
-          </div>
-        </div>
-
-        {/* Barra selezione + score */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-gray-700">
-              {selectedPids.size} selezionati
+      {/* ── Barra di stato sticky ─────────────────────────────────────────── */}
+      <div className="sticky top-0 z-10 bg-white border-b border-gray-100 shadow-sm px-4 py-2.5 flex items-center gap-3">
+        {/* Contatore selezionati */}
+        <div className="flex items-center gap-1.5 flex-1">
+          <span className={`text-sm font-black tabular-nums ${selectedPids.size === FORMATION_SIZE ? 'text-green-600' : 'text-indigo-700'}`}>
+            {selectedPids.size}
+          </span>
+          <span className="text-xs text-gray-400 font-medium">/{FORMATION_SIZE}</span>
+          {missing > 0 ? (
+            <span className="text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-lg font-semibold ml-1">
+              mancano {missing}
             </span>
-            {selectedPids.size > 0 && (
-              <button
-                onClick={() => setSelectedPids(new Set())}
-                className="text-xs text-red-400 font-semibold bg-red-50 px-2 py-0.5 rounded-lg"
-              >
-                Azzera
-              </button>
-            )}
-          </div>
-          {loadStatus === 'loaded' && selectedPids.size > 0 && (
-            <div className="text-right">
-              <span className="text-lg font-black text-indigo-700">{total.toFixed(1)}</span>
-              <span className="text-xs text-gray-400 ml-1">pt</span>
-              <span className="text-xs text-gray-400 ml-2">({votedCount}/{selectedPids.size} con voto)</span>
-            </div>
+          ) : (
+            <span className="text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded-lg font-semibold ml-1">
+              completa ✓
+            </span>
+          )}
+          {selectedPids.size > 0 && (
+            <button
+              onClick={() => setSelectedPids(new Set())}
+              className="text-xs text-gray-400 underline ml-1"
+            >
+              azzera
+            </button>
           )}
         </div>
 
-        {/* Pool giocatori per ruolo */}
-        {ROLE_ORDER.map((role) => {
-          const rolePlayers = poolByRole[role]
-          if (rolePlayers.length === 0) return null
-          return (
-            <div key={role} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-50">
-                <span className={`text-xs font-bold px-2 py-0.5 rounded ${ROLE_COLORS[role]}`}>
-                  {role}
-                </span>
-                <span className="text-sm font-bold text-gray-700">{ROLE_LABELS[role]}</span>
-                <span className="text-xs text-gray-400 ml-auto">{rolePlayers.length}</span>
-              </div>
-              <div className="divide-y divide-gray-50">
-                {rolePlayers.map((p) => {
-                  const isSelected = selectedPids.has(p.id)
-                  const voto = getVoto(p)
-                  return (
-                    <button
-                      key={p.id}
-                      onClick={() => togglePlayer(p.id)}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-                        isSelected ? 'bg-indigo-50' : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      {/* Checkbox */}
-                      <div className={`w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-colors ${
-                        isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-gray-200'
-                      }`}>
-                        {isSelected && (
-                          <svg className="w-3 h-3 text-white" viewBox="0 0 12 10" fill="none">
-                            <path d="M1 5l3.5 3.5L11 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </div>
-                      {/* Nome + squadra */}
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm truncate ${isSelected ? 'font-bold text-indigo-800' : 'text-gray-700'}`}>
-                          {p.name}
-                        </p>
-                        {p.serie_a_team && (
-                          <p className="text-xs text-gray-400 truncate">{p.serie_a_team}</p>
-                        )}
-                      </div>
-                      {/* Voto */}
-                      {loadStatus === 'loaded' && (
-                        <span className={`text-sm font-bold tabular-nums shrink-0 ${
-                          voto !== null
-                            ? isSelected ? 'text-indigo-700' : 'text-gray-500'
-                            : 'text-gray-300'
-                        }`}>
-                          {voto !== null ? voto.toFixed(1) : 'sv'}
-                        </span>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
-
-        {pool.length === 0 && (
-          <div className="bg-white rounded-2xl p-6 text-center shadow-sm border border-gray-100">
-            <p className="text-gray-400 text-sm">
-              {source !== 'all'
-                ? 'Nessun giocatore nella rosa selezionata.'
-                : 'Nessun giocatore trovato.'}
-            </p>
+        {/* Totale (mostrato sempre se voti caricati) */}
+        {total !== null ? (
+          <div className="text-right shrink-0">
+            <span className="text-lg font-black text-indigo-700 tabular-nums">{total.toFixed(1)}</span>
+            <span className="text-xs text-gray-400 ml-1">pt</span>
+            {selectedPids.size > 0 && (
+              <span className="text-xs text-gray-400 block leading-none">
+                {votedCount}/{selectedPids.size} con voto
+              </span>
+            )}
           </div>
-        )}
+        ) : loadStatus === 'idle' ? (
+          <span className="text-xs text-gray-300 shrink-0">carica voti →</span>
+        ) : loadStatus === 'loading' ? (
+          <span className="text-xs text-indigo-400 shrink-0">caricamento...</span>
+        ) : null}
+      </div>
 
-        {/* Voti giornata */}
+      <div className="px-4 py-4 space-y-3">
+
+        {/* ── Voti giornata (in cima) ──────────────────────────────────────── */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Voti giornata</p>
-
           {votiArchivio.length === 0 ? (
             <p className="text-xs text-gray-400 italic">Nessuna giornata voti importata.</p>
           ) : (
@@ -318,7 +232,6 @@ export default function SelezioneLibera({
                   {loadStatus === 'loading' ? 'Caricamento...' : 'Carica voti'}
                 </button>
               </div>
-
               {loadStatus === 'loaded' && selectedArchivio && (
                 <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
                   <span className="text-xs text-indigo-600 font-bold">Voti caricati:</span>
@@ -334,14 +247,114 @@ export default function SelezioneLibera({
           )}
         </div>
 
-        {/* Riepilogo selezione con voti */}
-        {selectedPids.size > 0 && loadStatus === 'loaded' && (
+        {/* ── Fonte + Cerca ────────────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
+          <label className="text-xs font-bold text-gray-500 uppercase tracking-wide block">
+            Fonte giocatori
+          </label>
+          <select
+            value={source}
+            onChange={(e) => handleSourceChange(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+          >
+            <option value="all">Tutti i giocatori</option>
+            {myTeamId && (
+              <option value={myTeamId}>
+                La mia rosa ({teams.find((t) => t.id === myTeamId)?.name ?? '—'})
+              </option>
+            )}
+            {teams.filter((t) => t.id !== myTeamId).map((t) => (
+              <option key={t.id} value={t.id}>Rosa di {t.name}</option>
+            ))}
+          </select>
+          <input
+            type="text"
+            placeholder="Cerca giocatore o squadra..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          />
+        </div>
+
+        {/* ── Pool giocatori per ruolo ──────────────────────────────────────── */}
+        {ROLE_ORDER.map((role) => {
+          const rolePlayers = poolByRole[role]
+          if (rolePlayers.length === 0) return null
+          const selectedInRole = rolePlayers.filter((p) => selectedPids.has(p.id)).length
+          return (
+            <div key={role} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-50">
+                <span className={`text-xs font-bold px-2 py-0.5 rounded ${ROLE_COLORS[role]}`}>{role}</span>
+                <span className="text-sm font-bold text-gray-700">{ROLE_LABELS[role]}</span>
+                <span className="text-xs text-gray-400 ml-auto">{rolePlayers.length}</span>
+                {selectedInRole > 0 && (
+                  <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-lg">
+                    {selectedInRole} sel.
+                  </span>
+                )}
+              </div>
+              <div className="divide-y divide-gray-50">
+                {rolePlayers.map((p) => {
+                  const isSelected = selectedPids.has(p.id)
+                  const voto = getVoto(p)
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => togglePlayer(p.id)}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                        isSelected ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className={`w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-colors ${
+                        isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-gray-200'
+                      }`}>
+                        {isSelected && (
+                          <svg className="w-3 h-3 text-white" viewBox="0 0 12 10" fill="none">
+                            <path d="M1 5l3.5 3.5L11 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm truncate ${isSelected ? 'font-bold text-indigo-800' : 'text-gray-700'}`}>
+                          {p.name}
+                        </p>
+                        {p.serie_a_team && (
+                          <p className="text-xs text-gray-400 truncate">{p.serie_a_team}</p>
+                        )}
+                      </div>
+                      {loadStatus === 'loaded' && (
+                        <span className={`text-sm font-bold tabular-nums shrink-0 ${
+                          voto !== null
+                            ? isSelected ? 'text-indigo-700' : 'text-gray-500'
+                            : 'text-gray-300'
+                        }`}>
+                          {voto !== null ? voto.toFixed(1) : 'sv'}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+
+        {pool.length === 0 && (
+          <div className="bg-white rounded-2xl p-6 text-center shadow-sm border border-gray-100">
+            <p className="text-gray-400 text-sm">
+              {source !== 'all' ? 'Nessun giocatore nella rosa selezionata.' : 'Nessun giocatore trovato.'}
+            </p>
+          </div>
+        )}
+
+        {/* ── Riepilogo formazione (in fondo) ──────────────────────────────── */}
+        {selectedPids.size > 0 && total !== null && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-gray-50 flex items-center justify-between">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Riepilogo formazione</p>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Riepilogo</p>
               <div>
-                <span className="text-lg font-black text-indigo-700">{total.toFixed(1)}</span>
-                <span className="text-xs text-gray-400 ml-1">pt totali</span>
+                <span className="text-lg font-black text-indigo-700 tabular-nums">{total.toFixed(1)}</span>
+                <span className="text-xs text-gray-400 ml-1">pt</span>
               </div>
             </div>
             {ROLE_ORDER.map((role) => {
@@ -358,9 +371,7 @@ export default function SelezioneLibera({
                     return (
                       <div key={p.id} className="flex items-center gap-3 px-4 py-2 border-t border-gray-50">
                         <span className="text-xs text-gray-700 flex-1 truncate font-medium">{p.name}</span>
-                        <span className={`text-sm font-bold tabular-nums ${
-                          voto !== null ? 'text-indigo-700' : 'text-gray-300'
-                        }`}>
+                        <span className={`text-sm font-bold tabular-nums ${voto !== null ? 'text-indigo-700' : 'text-gray-300'}`}>
                           {voto !== null ? voto.toFixed(1) : 'sv'}
                         </span>
                       </div>
@@ -370,11 +381,9 @@ export default function SelezioneLibera({
               )
             })}
             <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between">
-              <span className="text-xs text-gray-400">
-                {votedCount} su {selectedPids.size} giocatori con voto
-              </span>
+              <span className="text-xs text-gray-400">{votedCount}/{selectedPids.size} giocatori con voto</span>
               <div>
-                <span className="text-xl font-black text-indigo-700">{total.toFixed(1)}</span>
+                <span className="text-xl font-black text-indigo-700 tabular-nums">{total.toFixed(1)}</span>
                 <span className="text-sm text-gray-400 ml-1">pt</span>
               </div>
             </div>
