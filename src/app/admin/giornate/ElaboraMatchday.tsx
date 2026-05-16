@@ -28,7 +28,7 @@ interface Props {
   settings: LeagueSettings
   lineupsByTeam: Record<string, LineupData>
   existingResults: ExistingResult[]
-  onSaved?: (results: ExistingResult[]) => void
+  onSaved?: (results: ExistingResult[], archivio: { stagione: string; giornata: number } | null) => void
 }
 
 // Which player's vote is actually used for a starter slot
@@ -227,7 +227,7 @@ export default function ElaboraMatchday({
       const data = await res.json()
       if (!res.ok || data.error) { setSaveMsg(`Errore: ${data.error ?? 'sconosciuto'}`); return }
       setSavedResults(data.results)
-      onSaved?.(data.results)
+      onSaved?.(data.results, selectedArchivio ? { stagione: selectedArchivio.stagione, giornata: selectedArchivio.giornata } : null)
       setSaveMsg('Risultati salvati. Giornata segnata come Completata.')
     } catch (e) { setSaveMsg(`Errore: ${(e as Error).message}`) }
     finally { setSaving(false) }

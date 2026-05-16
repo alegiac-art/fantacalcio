@@ -12,6 +12,7 @@ import ElaboraMatchday from './ElaboraMatchday'
 interface Matchday {
   id: string; number: number; deadline: string | null
   status: 'upcoming' | 'open' | 'closed' | 'completed'
+  voti_archivio: { stagione: string; giornata: number } | null
 }
 interface Team { id: string; name: string }
 interface Fixture { id: string; matchday_id: string; home_team_id: string; away_team_id: string }
@@ -39,6 +40,8 @@ interface Props {
   resultsByMatchday: Record<string, ResultRow[]>
 }
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
 const STATUS_LABELS: Record<string, string> = {
   upcoming: 'In arrivo', open: 'Aperta', closed: 'Chiusa', completed: 'Calcolata',
 }
@@ -54,9 +57,60 @@ const ROLE_COLORS: Record<string, string> = {
   C: 'bg-green-100 text-green-700',
   A: 'bg-red-100 text-red-700',
 }
-const ROLE_ORDER = ['P', 'D', 'C', 'A']
+const ROLE_ORDER = ['P', 'D', 'C', 'A'] as const
 
-// ── Subcomponent: formazione compatta per admin ───────────────────────────────
+// ── computeActivePids ─────────────────────────────────────────────────────────
+// Returns the set of player_ids whose vote actually counts.
+// Same rules as ElaboraMatchday: Rule 4 (sv sub) then Rule 3 (asterisco upgrade).
+
+function computeActivePids(
+  lineup: LineupData,
+  voti: Record<string, number | null>,
+): Set<string> {
+  const getV = (codice: string | null) => (codice ? (voti[codice] ?? null) : null)
+
+  const starters = lineup.players
+    .filter((p) => p.is_starter)
+    .sort((a, b) => ROLE_ORDER.indexOf(a.role as typeof ROLE_ORDER[number]) - ROLE_ORDER.indexOf(b.role as typeof ROLE_ORDER[number]))
+
+  const benchByRole: Record<string, LineupPlayer[]> = { P: [], D: [], C: [], A: [] }
+  for (const p of lineup.players.filter((p) => !p.is_starter).sort((a, b) => a.bench_order - b.bench_order)) {
+    if (benchByRole[p.role]) benchByRole[p.role].push(p)
+  }
+
+  const benchAsteriscoByRole: Record<string, string | null> = {}
+  for (const p of lineup.players.filter((p) => !p.is_starter && p.asterisco)) {
+    benchAsteriscoByRole[p.role] = p.player_id
+  }
+
+  const usedBench = new Set<string>()
+  const active = new Set<string>()
+
+  for (const s of starters) {
+    const sv = getV(s.codice)
+    if (sv === null) {
+      for (const bp of benchByRole[s.role] ?? []) {
+        if (usedBench.has(bp.player_id)) continue
+        if (getV(bp.codice) !== null) { usedBench.add(bp.player_id); active.add(bp.player_id); break }
+      }
+      continue
+    }
+    if (s.asterisco) {
+      const bPid = benchAsteriscoByRole[s.role]
+      if (bPid && !usedBench.has(bPid)) {
+        const bp = lineup.players.find((p) => p.player_id === bPid)
+        if (bp) {
+          const bv = getV(bp.codice)
+          if (bv !== null && bv > sv) { usedBench.add(bPid); active.add(bPid); continue }
+        }
+      }
+    }
+    active.add(s.player_id)
+  }
+  return active
+}
+
+// ── LineupCompact (per giornate non completate) ───────────────────────────────
 
 function LineupCompact({ lineup, teamName }: { lineup: LineupData | null; teamName: string }) {
   if (!lineup) return (
@@ -68,10 +122,13 @@ function LineupCompact({ lineup, teamName }: { lineup: LineupData | null; teamNa
 
   const starters = lineup.players
     .filter((p) => p.is_starter)
-    .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role))
-  const bench = lineup.players
-    .filter((p) => !p.is_starter)
-    .sort((a, b) => a.bench_order - b.bench_order)
+    .sort((a, b) => ROLE_ORDER.indexOf(a.role as typeof ROLE_ORDER[number]) - ROLE_ORDER.indexOf(b.role as typeof ROLE_ORDER[number]))
+
+  const benchByRole = ROLE_ORDER.reduce<Record<string, LineupPlayer[]>>((acc, r) => {
+    acc[r] = lineup.players.filter((p) => !p.is_starter && p.role === r).sort((a, b) => a.bench_order - b.bench_order)
+    return acc
+  }, { P: [], D: [], C: [], A: [] })
+  const hasBench = ROLE_ORDER.some((r) => benchByRole[r].length > 0)
 
   return (
     <div className="flex-1 min-w-0">
@@ -88,17 +145,121 @@ function LineupCompact({ lineup, teamName }: { lineup: LineupData | null; teamNa
           </div>
         ))}
       </div>
-      {bench.length > 0 && (
+      {hasBench && (
         <div className="mt-1 pt-1 border-t border-gray-100">
           <p className="text-xs text-gray-400 font-bold mb-0.5">Panchina</p>
-          {bench.map((p, i) => (
-            <div key={p.player_id} className="flex items-center gap-1">
-              <span className="text-xs text-blue-400 font-black w-4">{i + 1}°</span>
+          <div className="space-y-1.5">
+            {ROLE_ORDER.map((role) => {
+              const rp = benchByRole[role]
+              if (rp.length === 0) return null
+              return (
+                <div key={role}>
+                  <span className={`text-xs font-bold px-1 py-px rounded inline-block mb-0.5 ${ROLE_COLORS[role]}`}>{role}</span>
+                  {rp.map((p) => (
+                    <div key={p.player_id} className="flex items-center gap-1">
+                      {p.asterisco && <span className="text-yellow-400 text-xs">★</span>}
+                      <span className="text-xs text-gray-500 truncate">{p.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── LineupWithVoti (per giornate completate) ──────────────────────────────────
+
+function LineupWithVoti({
+  lineup, teamName, voti,
+}: {
+  lineup: LineupData | null
+  teamName: string
+  voti: Record<string, number | null>
+}) {
+  if (!lineup) return (
+    <div className="flex-1">
+      <p className="text-xs font-bold text-gray-600 mb-0.5">{teamName}</p>
+      <p className="text-xs text-gray-400 italic">Formazione non inviata</p>
+    </div>
+  )
+
+  const activePids = computeActivePids(lineup, voti)
+  const getV = (codice: string | null) => (codice ? (voti[codice] ?? null) : null)
+
+  const starters = lineup.players
+    .filter((p) => p.is_starter)
+    .sort((a, b) => ROLE_ORDER.indexOf(a.role as typeof ROLE_ORDER[number]) - ROLE_ORDER.indexOf(b.role as typeof ROLE_ORDER[number]))
+
+  const benchByRole = ROLE_ORDER.reduce<Record<string, LineupPlayer[]>>((acc, r) => {
+    acc[r] = lineup.players.filter((p) => !p.is_starter && p.role === r).sort((a, b) => a.bench_order - b.bench_order)
+    return acc
+  }, { P: [], D: [], C: [], A: [] })
+  const hasBench = ROLE_ORDER.some((r) => benchByRole[r].length > 0)
+
+  return (
+    <div className="flex-1 min-w-0">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <p className="text-xs font-bold text-gray-700 truncate">{teamName}</p>
+        <span className="text-xs text-green-700 bg-green-50 px-1.5 rounded shrink-0">{lineup.formation}</span>
+      </div>
+
+      {/* Titolari */}
+      <div className="space-y-0.5">
+        {starters.map((p) => {
+          const isActive = activePids.has(p.player_id)
+          const isReplaced = !isActive
+          const voto = getV(p.codice)
+          return (
+            <div key={p.player_id} className={`flex items-center gap-1 rounded px-1 py-0.5 ${isActive ? 'bg-green-50' : 'opacity-40'}`}>
               <span className={`text-xs font-bold px-1 py-px rounded shrink-0 ${ROLE_COLORS[p.role]}`}>{p.role}</span>
-              {p.asterisco && <span className="text-yellow-400 text-xs">★</span>}
-              <span className="text-xs text-gray-500 truncate">{p.name}</span>
+              {p.asterisco && <span className="text-yellow-400 text-xs shrink-0">★</span>}
+              <span className={`text-xs truncate flex-1 ${isActive ? 'font-bold text-gray-800' : 'line-through text-gray-400'}`}>
+                {p.name}
+              </span>
+              <span className={`text-xs font-bold shrink-0 ml-1 tabular-nums ${isActive ? 'text-green-700' : 'text-gray-300'}`}>
+                {voto !== null ? voto.toFixed(1) : 'sv'}
+              </span>
             </div>
-          ))}
+          )
+        })}
+      </div>
+
+      {/* Panchina per ruolo */}
+      {hasBench && (
+        <div className="mt-1.5 pt-1.5 border-t border-gray-100">
+          <p className="text-xs text-gray-400 font-bold mb-1">Panchina</p>
+          <div className="space-y-1.5">
+            {ROLE_ORDER.map((role) => {
+              const rp = benchByRole[role]
+              if (rp.length === 0) return null
+              return (
+                <div key={role}>
+                  <span className={`text-xs font-bold px-1 py-px rounded inline-block mb-0.5 ${ROLE_COLORS[role]}`}>{role}</span>
+                  <div className="space-y-0.5">
+                    {rp.map((p) => {
+                      const isActive = activePids.has(p.player_id)
+                      const voto = getV(p.codice)
+                      return (
+                        <div key={p.player_id} className={`flex items-center gap-1 rounded px-1 py-0.5 ${isActive ? 'bg-green-50' : ''}`}>
+                          {p.asterisco && <span className="text-yellow-400 text-xs shrink-0">★</span>}
+                          <span className={`text-xs truncate flex-1 ${isActive ? 'font-bold text-gray-800' : 'text-gray-500'}`}>
+                            {p.name}
+                          </span>
+                          <span className={`text-xs font-bold shrink-0 ml-1 tabular-nums ${isActive ? 'text-green-700' : 'text-gray-300'}`}>
+                            {voto !== null ? voto.toFixed(1) : 'sv'}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -116,6 +277,8 @@ export default function GiornateClient({
   const [localResultsByMatchday, setLocalResultsByMatchday] = useState<Record<string, ResultRow[]>>(resultsByMatchday)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<Record<string, 'formazioni' | 'elabora'>>({})
+  const [votiByMatchday, setVotiByMatchday] = useState<Record<string, Record<string, number | null>>>({})
+  const [loadingVotiMatchdays, setLoadingVotiMatchdays] = useState<Set<string>>(new Set())
   const [newNumber, setNewNumber] = useState(
     initialMatchdays.length > 0 ? Math.max(...initialMatchdays.map((m) => m.number)) + 1 : 1
   )
@@ -129,14 +292,72 @@ export default function GiornateClient({
 
   const teamById = Object.fromEntries(teams.map((t) => [t.id, t]))
 
-  const handleResultsSaved = (matchdayId: string, results: { team_id: string; total_score: number; goals_scored: number; goals_conceded: number; points: number }[]) => {
+  // ── Carica voti per una giornata calcolata ──────────────────────────────────
+
+  const loadVotiForMatchday = async (matchday: Matchday) => {
+    if (!matchday.voti_archivio) return
+    if (votiByMatchday[matchday.id] !== undefined) return
+    if (loadingVotiMatchdays.has(matchday.id)) return
+
+    setLoadingVotiMatchdays((prev) => new Set([...prev, matchday.id]))
+
+    const lineupsByTeam = lineupsByMatchdayTeam[matchday.id] ?? {}
+    const allCodici = Object.values(lineupsByTeam)
+      .flatMap((l) => l.players)
+      .map((p) => p.codice)
+      .filter(Boolean) as string[]
+
+    if (allCodici.length === 0) {
+      setVotiByMatchday((prev) => ({ ...prev, [matchday.id]: {} }))
+      setLoadingVotiMatchdays((prev) => { const s = new Set(prev); s.delete(matchday.id); return s })
+      return
+    }
+
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('voti_giornata')
+      .select('codice, voto_fanta')
+      .eq('stagione', matchday.voti_archivio.stagione)
+      .eq('giornata', matchday.voti_archivio.giornata)
+      .in('codice', allCodici)
+
+    const map: Record<string, number | null> = {}
+    for (const v of data ?? []) map[v.codice] = v.voto_fanta
+    setVotiByMatchday((prev) => ({ ...prev, [matchday.id]: map }))
+    setLoadingVotiMatchdays((prev) => { const s = new Set(prev); s.delete(matchday.id); return s })
+  }
+
+  // ── Expand con caricamento automatico voti ──────────────────────────────────
+
+  const handleExpand = (matchday: Matchday) => {
+    const next = expanded === matchday.id ? null : matchday.id
+    setExpanded(next)
+    if (next && matchday.status === 'completed' && matchday.voti_archivio) {
+      loadVotiForMatchday(matchday)
+    }
+  }
+
+  // ── Altri handlers ──────────────────────────────────────────────────────────
+
+  const handleResultsSaved = (
+    matchdayId: string,
+    results: { team_id: string; total_score: number; goals_scored: number; goals_conceded: number; points: number }[],
+    archivio: { stagione: string; giornata: number } | null,
+  ) => {
     setLocalResultsByMatchday((prev) => ({
       ...prev,
       [matchdayId]: results.map((r) => ({ matchday_id: matchdayId, ...r })),
     }))
     setMatchdays((prev) =>
-      prev.map((m) => (m.id === matchdayId ? { ...m, status: 'completed' } : m))
+      prev.map((m) => (m.id === matchdayId ? { ...m, status: 'completed', voti_archivio: archivio } : m))
     )
+    // Se abbiamo appena salvato, ricarica i voti per mostrali nella tab Formazioni
+    if (archivio) {
+      setVotiByMatchday((prev) => {
+        const { [matchdayId]: _, ...rest } = prev
+        return rest  // invalida cache così al prossimo accesso ricarica
+      })
+    }
   }
 
   const getTab = (matchdayId: string) => activeTab[matchdayId] ?? 'formazioni'
@@ -158,7 +379,7 @@ export default function GiornateClient({
         .select()
         .single()
       if (error) { setMessage('Errore: ' + error.message); return }
-      setMatchdays((prev) => [...prev, data as Matchday].sort((a, b) => a.number - b.number))
+      setMatchdays((prev) => [...prev, { ...(data as Omit<Matchday, 'voti_archivio'>), voti_archivio: null }].sort((a, b) => a.number - b.number))
       setShowNew(false)
       setNewNumber((n) => n + 1)
       setNewDeadline('')
@@ -216,6 +437,8 @@ export default function GiornateClient({
     setEditFixtures(matchday.id)
   }
 
+  // ── Render ──────────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-gray-800 text-white px-4 pt-12 pb-4">
@@ -225,10 +448,7 @@ export default function GiornateClient({
             <h1 className="text-xl font-bold">Giornate</h1>
             <p className="text-gray-400 text-sm">{matchdays.length} giornate</p>
           </div>
-          <button
-            onClick={() => setShowNew(true)}
-            className="bg-green-600 text-white text-sm font-bold px-4 py-2 rounded-xl"
-          >
+          <button onClick={() => setShowNew(true)} className="bg-green-600 text-white text-sm font-bold px-4 py-2 rounded-xl">
             + Crea
           </button>
         </div>
@@ -242,7 +462,7 @@ export default function GiornateClient({
 
       {/* Modal nuova giornata */}
       {showNew && (
-        <div className="fixed inset-0 bg-black/50 z-[60] flex items-end">
+        <div className="fixed inset-0 bg-black/50 z-60 flex items-end">
           <div className="bg-white w-full rounded-t-3xl p-6 space-y-4">
             <h2 className="font-bold text-lg">Nuova giornata</h2>
             <div>
@@ -271,7 +491,7 @@ export default function GiornateClient({
 
       {/* Modal sfide */}
       {editFixtures && (
-        <div className="fixed inset-0 bg-black/50 z-[60] flex items-end">
+        <div className="fixed inset-0 bg-black/50 z-60 flex items-end">
           <div className="bg-white w-full rounded-t-3xl p-5 space-y-4 max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <h2 className="font-bold text-lg">Sfide</h2>
@@ -323,8 +543,11 @@ export default function GiornateClient({
           const lineupsByTeam = lineupsByMatchdayTeam[matchday.id] ?? {}
           const mResults = localResultsByMatchday[matchday.id] ?? []
           const tab = getTab(matchday.id)
+          const isCompleted = matchday.status === 'completed'
+          const matchdayVoti = votiByMatchday[matchday.id] ?? null
+          const isLoadingVoti = loadingVotiMatchdays.has(matchday.id)
+          const hasVoti = matchdayVoti !== null
 
-          // Conta formazioni inviate
           const submittedCount = mFixtures.reduce((acc, f) => {
             if (lineupsByTeam[f.home_team_id]) acc++
             if (lineupsByTeam[f.away_team_id]) acc++
@@ -337,7 +560,7 @@ export default function GiornateClient({
               {/* Header */}
               <div
                 className="px-4 py-3 flex items-center gap-3 cursor-pointer"
-                onClick={() => setExpanded(expanded === matchday.id ? null : matchday.id)}
+                onClick={() => handleExpand(matchday)}
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -347,11 +570,9 @@ export default function GiornateClient({
                     </span>
                     {mFixtures.length > 0 && (
                       <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                        submittedCount === expectedCount
-                          ? 'bg-green-100 text-green-700'
-                          : submittedCount > 0
-                            ? 'bg-amber-100 text-amber-700'
-                            : 'bg-gray-100 text-gray-500'
+                        submittedCount === expectedCount ? 'bg-green-100 text-green-700'
+                          : submittedCount > 0 ? 'bg-amber-100 text-amber-700'
+                          : 'bg-gray-100 text-gray-500'
                       }`}>
                         {submittedCount}/{expectedCount} form.
                       </span>
@@ -389,14 +610,14 @@ export default function GiornateClient({
                         </button>
                       ))}
                       <div className={`flex-1 py-1.5 rounded-lg text-xs font-bold text-center ${
-                        matchday.status === 'completed' ? STATUS_COLORS['completed'] : 'bg-gray-50 text-gray-300'
+                        isCompleted ? STATUS_COLORS['completed'] : 'bg-gray-50 text-gray-300'
                       }`}>
                         {STATUS_LABELS['completed']}
                       </div>
                     </div>
                   </div>
 
-                  {/* Sfide */}
+                  {/* Sfide con risultati */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">
@@ -435,18 +656,15 @@ export default function GiornateClient({
                     )}
                   </div>
 
-                  {/* Tabs: Formazioni / Elabora */}
+                  {/* Tabs */}
                   {mFixtures.length > 0 && (
                     <div>
                       <div className="flex gap-1 mb-3 border-b border-gray-100">
                         {(['formazioni', 'elabora'] as const).map((t) => (
-                          <button
-                            key={t}
+                          <button key={t}
                             onClick={() => setTab(matchday.id, t)}
                             className={`px-3 py-2 text-xs font-bold border-b-2 transition-colors ${
-                              tab === t
-                                ? 'border-gray-800 text-gray-800'
-                                : 'border-transparent text-gray-400 hover:text-gray-600'
+                              tab === t ? 'border-gray-800 text-gray-800' : 'border-transparent text-gray-400 hover:text-gray-600'
                             }`}
                           >
                             {t === 'formazioni' ? 'Formazioni' : 'Elabora risultati'}
@@ -457,6 +675,30 @@ export default function GiornateClient({
                       {/* Tab: Formazioni */}
                       {tab === 'formazioni' && (
                         <div className="space-y-3">
+                          {/* Banner voti usati (solo per giornate calcolate) */}
+                          {isCompleted && matchday.voti_archivio && (
+                            <div className="flex items-center gap-2 bg-purple-50 border border-purple-100 rounded-lg px-3 py-2">
+                              <span className="text-xs text-purple-600 font-bold">Voti utilizzati:</span>
+                              <span className="text-xs text-purple-700">
+                                {matchday.voti_archivio.stagione} — Giornata {matchday.voti_archivio.giornata}
+                              </span>
+                              {isLoadingVoti && (
+                                <span className="text-xs text-purple-400 ml-auto">caricamento...</span>
+                              )}
+                              {!isLoadingVoti && hasVoti && (
+                                <span className="text-xs text-green-600 ml-auto flex items-center gap-1">
+                                  <span className="w-2 h-2 bg-green-100 rounded inline-block" />
+                                  considerati nel calcolo
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {isCompleted && !matchday.voti_archivio && (
+                            <p className="text-xs text-gray-400 italic text-center">
+                              Nessun riferimento ai voti. Ricalcola e salva i risultati per vedere i voti.
+                            </p>
+                          )}
+
                           {mFixtures.map((f) => (
                             <div key={f.id} className="border border-gray-100 rounded-xl overflow-hidden">
                               <div className="bg-gray-50 px-3 py-1.5">
@@ -465,15 +707,33 @@ export default function GiornateClient({
                                 </span>
                               </div>
                               <div className="flex gap-3 p-3">
-                                <LineupCompact
-                                  lineup={lineupsByTeam[f.home_team_id] ?? null}
-                                  teamName={teamById[f.home_team_id]?.name ?? '—'}
-                                />
-                                <div className="w-px bg-gray-100 shrink-0" />
-                                <LineupCompact
-                                  lineup={lineupsByTeam[f.away_team_id] ?? null}
-                                  teamName={teamById[f.away_team_id]?.name ?? '—'}
-                                />
+                                {isCompleted && hasVoti ? (
+                                  <>
+                                    <LineupWithVoti
+                                      lineup={lineupsByTeam[f.home_team_id] ?? null}
+                                      teamName={teamById[f.home_team_id]?.name ?? '—'}
+                                      voti={matchdayVoti!}
+                                    />
+                                    <div className="w-px bg-gray-100 shrink-0" />
+                                    <LineupWithVoti
+                                      lineup={lineupsByTeam[f.away_team_id] ?? null}
+                                      teamName={teamById[f.away_team_id]?.name ?? '—'}
+                                      voti={matchdayVoti!}
+                                    />
+                                  </>
+                                ) : (
+                                  <>
+                                    <LineupCompact
+                                      lineup={lineupsByTeam[f.home_team_id] ?? null}
+                                      teamName={teamById[f.home_team_id]?.name ?? '—'}
+                                    />
+                                    <div className="w-px bg-gray-100 shrink-0" />
+                                    <LineupCompact
+                                      lineup={lineupsByTeam[f.away_team_id] ?? null}
+                                      teamName={teamById[f.away_team_id]?.name ?? '—'}
+                                    />
+                                  </>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -490,7 +750,7 @@ export default function GiornateClient({
                           settings={settings}
                           lineupsByTeam={lineupsByTeam}
                           existingResults={mResults}
-                          onSaved={(results) => handleResultsSaved(matchday.id, results)}
+                          onSaved={(results, archivio) => handleResultsSaved(matchday.id, results, archivio)}
                         />
                       )}
                     </div>

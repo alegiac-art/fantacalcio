@@ -27,7 +27,7 @@ export default async function GiornatePage() {
     { data: allResults },
   ] = await Promise.all([
     supabase.from('leagues').select('id, name, settings').single(),
-    supabase.from('matchdays').select('*').order('number'),
+    supabase.from('matchdays').select('*, voti_archivio:voti_archivio_id(stagione, giornata)').order('number'),
     supabase.from('teams').select('id, name').order('name'),
     supabase.from('fixtures').select('id, matchday_id, home_team_id, away_team_id'),
     supabase
@@ -88,10 +88,17 @@ export default async function GiornatePage() {
     (acc, r) => { if (!acc[r.matchday_id]) acc[r.matchday_id] = []; acc[r.matchday_id].push(r); return acc }, {}
   )
 
+  type RawMatchday = { id: string; number: number; deadline: string | null; status: 'upcoming' | 'open' | 'closed' | 'completed'; voti_archivio: { stagione: string; giornata: number }[] | { stagione: string; giornata: number } | null }
+  const normalizedMatchdays = (matchdays || []).map((m) => {
+    const raw = m as unknown as RawMatchday
+    const va = Array.isArray(raw.voti_archivio) ? (raw.voti_archivio[0] ?? null) : (raw.voti_archivio ?? null)
+    return { id: raw.id, number: raw.number, deadline: raw.deadline, status: raw.status, voti_archivio: va }
+  })
+
   return (
     <GiornateClient
       league={league ? { id: league.id, name: league.name } : null}
-      initialMatchdays={matchdays || []}
+      initialMatchdays={normalizedMatchdays}
       teams={teams || []}
       initialFixtures={fixtures || []}
       votiArchivio={(votiArchivio || []) as { id: string; stagione: string; giornata: number; filename: string | null }[]}
