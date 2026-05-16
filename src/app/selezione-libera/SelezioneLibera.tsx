@@ -30,6 +30,37 @@ interface Props {
   settings: LeagueSettings
 }
 
+// ── Card icons ────────────────────────────────────────────────────────────────
+
+function YellowCard() {
+  return (
+    <svg width="10" height="14" viewBox="0 0 10 14" className="inline-block shrink-0">
+      <rect x="0.5" y="0.5" width="9" height="13" rx="1.5" fill="#FACC15" stroke="#CA8A04" strokeWidth="0.5" />
+    </svg>
+  )
+}
+
+function RedCard() {
+  return (
+    <svg width="10" height="14" viewBox="0 0 10 14" className="inline-block shrink-0">
+      <rect x="0.5" y="0.5" width="9" height="13" rx="1.5" fill="#EF4444" stroke="#B91C1C" strokeWidth="0.5" />
+    </svg>
+  )
+}
+
+function CardIcons({ ammonizione, espulsione }: { ammonizione: number | null; espulsione: number | null }) {
+  if (ammonizione === null && espulsione === null) return null
+  // Numero di cartellini gialli: 1 se |ammonizione| <= 0.5, altrimenti 2
+  const yellowCount = ammonizione !== null ? (Math.abs(ammonizione) > 0.5 ? 2 : 1) : 0
+  const hasRed = espulsione !== null
+  return (
+    <span className="inline-flex items-center gap-0.5 shrink-0">
+      {Array.from({ length: yellowCount }).map((_, i) => <YellowCard key={i} />)}
+      {hasRed && <RedCard />}
+    </span>
+  )
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const FORMATION_SIZE = 11
@@ -53,7 +84,7 @@ export default function SelezioneLibera({
   const [search, setSearch] = useState('')
   const [selectedPids, setSelectedPids] = useState<Set<string>>(new Set())
   const [selectedArchivioId, setSelectedArchivioId] = useState(votiArchivio[0]?.id ?? '')
-  const [voti, setVoti] = useState<Record<string, number | null>>({})
+  const [voti, setVoti] = useState<Record<string, { voto_fanta: number | null; ammonizione: number | null; espulsione: number | null }>>({})
   const [loadStatus, setLoadStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle')
   const [loadMsg, setLoadMsg] = useState('')
   const [showSelectedPanel, setShowSelectedPanel] = useState(false)
@@ -94,7 +125,13 @@ export default function SelezioneLibera({
   )
 
   const getVoto = (p: Player): number | null =>
-    loadStatus === 'loaded' && p.codice ? (voti[p.codice] ?? null) : null
+    loadStatus === 'loaded' && p.codice ? (voti[p.codice]?.voto_fanta ?? null) : null
+
+  const getCards = (p: Player) => {
+    if (loadStatus !== 'loaded' || !p.codice) return { ammonizione: null, espulsione: null }
+    const v = voti[p.codice]
+    return { ammonizione: v?.ammonizione ?? null, espulsione: v?.espulsione ?? null }
+  }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const total = useMemo(() => {
@@ -133,12 +170,12 @@ export default function SelezioneLibera({
     const supabase = createClient()
     const { data, error } = await supabase
       .from('voti_giornata')
-      .select('codice, voto_fanta')
+      .select('codice, voto_fanta, ammonizione, espulsione')
       .eq('stagione', archivio.stagione)
       .eq('giornata', archivio.giornata)
     if (error) { setLoadStatus('error'); setLoadMsg(error.message); return }
-    const map: Record<string, number | null> = {}
-    for (const v of data ?? []) map[v.codice] = v.voto_fanta
+    const map: Record<string, { voto_fanta: number | null; ammonizione: number | null; espulsione: number | null }> = {}
+    for (const v of data ?? []) map[v.codice] = { voto_fanta: v.voto_fanta, ammonizione: v.ammonizione, espulsione: v.espulsione }
     setVoti(map)
     setLoadStatus('loaded')
   }
@@ -242,8 +279,11 @@ export default function SelezioneLibera({
                             <div key={p.id} className="flex items-center gap-2">
                               <span className="text-xs text-gray-700 flex-1 truncate font-medium">{p.name}</span>
                               {total !== null && (
-                                <span className={`text-xs font-bold tabular-nums shrink-0 ${voto !== null ? 'text-indigo-600' : 'text-gray-300'}`}>
-                                  {voto !== null ? voto.toFixed(1) : 'sv'}
+                                <span className="flex items-center gap-1 shrink-0">
+                                  <CardIcons {...getCards(p)} />
+                                  <span className={`text-xs font-bold tabular-nums ${voto !== null ? 'text-indigo-600' : 'text-gray-300'}`}>
+                                    {voto !== null ? voto.toFixed(1) : 'sv'}
+                                  </span>
                                 </span>
                               )}
                               <button
@@ -392,12 +432,15 @@ export default function SelezioneLibera({
                         )}
                       </div>
                       {loadStatus === 'loaded' && (
-                        <span className={`text-sm font-bold tabular-nums shrink-0 ${
-                          voto !== null
-                            ? isSelected ? 'text-indigo-700' : 'text-gray-500'
-                            : 'text-gray-300'
-                        }`}>
-                          {voto !== null ? voto.toFixed(1) : 'sv'}
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          <CardIcons {...getCards(p)} />
+                          <span className={`text-sm font-bold tabular-nums ${
+                            voto !== null
+                              ? isSelected ? 'text-indigo-700' : 'text-gray-500'
+                              : 'text-gray-300'
+                          }`}>
+                            {voto !== null ? voto.toFixed(1) : 'sv'}
+                          </span>
                         </span>
                       )}
                     </button>
@@ -440,8 +483,11 @@ export default function SelezioneLibera({
                     return (
                       <div key={p.id} className="flex items-center gap-3 px-4 py-2 border-t border-gray-50">
                         <span className="text-xs text-gray-700 flex-1 truncate font-medium">{p.name}</span>
-                        <span className={`text-sm font-bold tabular-nums ${voto !== null ? 'text-indigo-700' : 'text-gray-300'}`}>
-                          {voto !== null ? voto.toFixed(1) : 'sv'}
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          <CardIcons {...getCards(p)} />
+                          <span className={`text-sm font-bold tabular-nums ${voto !== null ? 'text-indigo-700' : 'text-gray-300'}`}>
+                            {voto !== null ? voto.toFixed(1) : 'sv'}
+                          </span>
                         </span>
                       </div>
                     )
